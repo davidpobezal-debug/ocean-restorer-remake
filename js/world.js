@@ -5,11 +5,12 @@ import { rng, fbm, clamp, easeOutElastic, hash2 } from './util.js';
 import { mats, coralGeometries, kelpGeometry, swayMaterial, rockGeometry, buildWreck, buildCrystals, buildArch } from './models.js';
 import { ANIMALS } from './save.js';
 
+// V3 palette follows the original V2.2.2: dark water, saturated restored seabed, candy-coloured corals.
 export const BIOMES = [
-  { name: 'Tropický útes', water: 0x0e7391, fog: 0x0c6482, sand: 0xf0d9a4, dirt: 0x3a3424, oil: 0x15111c, rock: 0x2b4752, rim: 0x9ffff0, caust: 0xfff6d8, corals: [0xff5f8f, 0xffa53d, 0x9a6bff, 0x3fe0c5, 0xffe066, 0x4fb3ff, 0xff7a5c], kelp: 8, center: 'arch' },
-  { name: 'Jantárové vrakovisko', water: 0x2d6470, fog: 0x285a66, sand: 0xe0bd85, dirt: 0x3b2f1d, oil: 0x16100e, rock: 0x3a3c3f, rim: 0xffe9a8, caust: 0xffe6b0, corals: [0xffb347, 0xff6b5f, 0x5fe0b0, 0xffd36e, 0xe0607e], kelp: 10, center: 'wreck' },
-  { name: 'Kelpový les', water: 0x156b56, fog: 0x115c4a, sand: 0xd2d49a, dirt: 0x2b3020, oil: 0x111611, rock: 0x2c443c, rim: 0xd8ffb0, caust: 0xf4ffd0, corals: [0xc6f05a, 0xffd24a, 0xff8a5c, 0x7be0ff, 0xf28bd8], kelp: 70, center: 'kelp' },
-  { name: 'Svetielkujúce hlbiny', water: 0x0c1c4d, fog: 0x0a173f, sand: 0x6c6fb3, dirt: 0x1c1b2c, oil: 0x08070f, rock: 0x1d2347, rim: 0x8ff3ff, caust: 0xa8e8ff, corals: [0x55e7ff, 0xc46bff, 0x5cffc9, 0xff7ad1, 0x8f9bff], kelp: 6, center: 'crystals', glow: true },
+  { name: 'Tropický útes', water: 0x062b3b, fog: 0x062b3b, sand: 0x21aba1, dirt: 0x0e1a22, oil: 0x0a0a12, rock: 0x123542, rim: 0x8ffff0, caust: 0xd8fff6, corals: [0xf25ca1, 0x876be8, 0x36d9b5, 0xfa9952, 0xffe066, 0x4fb3ff], kelp: 8, center: 'arch' },
+  { name: 'Jantárové vrakovisko', water: 0x0f2e36, fog: 0x0f2e36, sand: 0xb87d3b, dirt: 0x17160f, oil: 0x0c0a08, rock: 0x2b2a26, rim: 0xffe9a8, caust: 0xfff0c8, corals: [0xffa83d, 0xed595e, 0x63d4a8, 0xffd978, 0xe0607e], kelp: 10, center: 'wreck' },
+  { name: 'Kelpový les', water: 0x072b20, fog: 0x072b20, sand: 0x5fae4e, dirt: 0x0f1a12, oil: 0x090d09, rock: 0x173a2c, rim: 0xd8ffb0, caust: 0xf0ffd8, corals: [0xc6f05a, 0xffd24a, 0xff8a5c, 0x7be0ff, 0xf28bd8], kelp: 70, center: 'kelp' },
+  { name: 'Svetielkujúce hlbiny', water: 0x0e0e2b, fog: 0x0e0e2b, sand: 0x4d40a6, dirt: 0x0d0b1c, oil: 0x060510, rock: 0x1a1c40, rim: 0x8ff3ff, caust: 0xb8e8ff, corals: [0x66d6ff, 0xd46eff, 0x59ffc9, 0xfa87d4, 0x8f9bff], kelp: 6, center: 'crystals', glow: true },
 ];
 export const RINGS = [10, 15.5, 21, 99];
 
@@ -61,9 +62,11 @@ void main(){
   float c = m.r + (nn - .5) * .22 + (n3 - .5) * .08;
   float cl = smoothstep(.45, .6, c);
   float hard = clamp(m.g * 2.008, 0., 2.);
-  vec3 sand = cSand * (.82 + .2 * n2 + .07 * nn) * (.94 + .06 * sin(vW.x * 2.6 + vW.y * .8 + n2 * 6.));
-  sand += caust(vW, uTime) * .42 * cCaust;
-  vec3 sludge = cDirt * (.65 + .7 * nn) * (.8 + .4 * n3);
+  // Restored seabed reads as soft 1 m tiles, like the original: each tile a touch brighter or darker.
+  vec2 tc = floor(vW); float tile = h(tc), edge = max(abs(fract(vW.x) - .5), abs(fract(vW.y) - .5));
+  vec3 sand = cSand * (.9 + .16 * tile + .05 * n2) * (1. - smoothstep(.44, .5, edge) * .07);
+  sand += caust(vW, uTime) * .1 * cCaust;
+  vec3 sludge = cDirt * (.75 + .5 * nn) * (.85 + .3 * n3) * (.9 + .2 * h(tc + 9.));
   vec3 oil = cOil * (.7 + .5 * n(vW * 4.));
   float isOil = clamp(hard, 0., 1.);
   vec3 dirt = mix(sludge, oil, isOil);
@@ -73,13 +76,13 @@ void main(){
   dirt *= .88 + .25 * pow(n(vW*.9 - 7.), 2.);
   vec3 col = mix(dirt, sand, cl);
   float rim = smoothstep(.22, .5, c) * (1. - smoothstep(.5, .78, c));
-  col += rim * cRim * (.75 + .5 * sin(uTime * 6. + vW.x * 3.)) * valid;
+  col += rim * cRim * (.32 + .18 * sin(uTime * 6. + vW.x * 3.)) * valid;
   col += cl * uFever * .12 * (.5 + .5 * cos(6.283 * (vW.x * .05 + uTime * .3 + vec3(0., .33, .67))));
   // Undiscovered seabed sits in murky darkness behind a glowing current.
   float locked = smoothstep(uReveal - .3, uReveal + .9, dist + wob * .4);
   col = mix(col, cDirt * .35 + cRock * .25, locked * .85);
   float front = (1. - smoothstep(0., .55, abs(dist + wob * .4 - uReveal - .25))) * step(uReveal, 900.);
-  col += front * cRim * (.55 + .45 * sin(uTime * 4. + atan(vW.y, vW.x) * 9.)) * valid;
+  col += front * cRim * (.3 + .25 * sin(uTime * 4. + atan(vW.y, vW.x) * 9.)) * valid;
   vec3 rock = cRock * (.55 + .55 * n(vW * .7)) * (.8 + .3 * nn);
   col = mix(rock, col, valid);
   gl_FragColor = vec4(col, 1.);
@@ -278,20 +281,20 @@ export class World {
       if (near || r() < .15) rocks.push({ x, z, s: .45 + r() * (near ? .9 : 1.6) });
     }
     this.rockMesh = new THREE.InstancedMesh(this.rockGeo, mats.flat, rocks.length);
-    rocks.forEach((p, i) => { dummy.position.set(p.x, -.1, p.z); dummy.rotation.set(r() * .3, r() * 6, r() * .3); dummy.scale.set(p.s * 1.2, p.s * (.35 + r() * .35), p.s * 1.2); dummy.updateMatrix(); this.rockMesh.setMatrixAt(i, dummy.matrix); this.rockMesh.setColorAt(i, new THREE.Color(this.biomeAt(p.x, p.z).rock).multiplyScalar(1.6 + r() * .8)); });
+    rocks.forEach((p, i) => { dummy.position.set(p.x, -.1, p.z); dummy.rotation.set(r() * .3, r() * 6, r() * .3); dummy.scale.set(p.s * 1.2, p.s * (.35 + r() * .35), p.s * 1.2); dummy.updateMatrix(); this.rockMesh.setMatrixAt(i, dummy.matrix); this.rockMesh.setColorAt(i, new THREE.Color(this.biomeAt(p.x, p.z).rock).multiplyScalar(.9 + r() * .5)); });
     this.group.add(this.rockMesh);
   }
 
   setCoral(mesh, c, i, k, dummy) {
     const grow = c.hidden ? 0 : k <= 0 ? .55 : .55 + .45 * easeOutElastic(k), col = k <= 0 ? null : k;
     dummy.position.set(c.x, 0, c.z); dummy.rotation.set(0, c.rot, 0); dummy.scale.setScalar(Math.max(.0001, c.s * grow)); dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix);
-    const grey = new THREE.Color(.42, .43, .45);
+    const grey = new THREE.Color(.08, .11, .13);
     mesh.setColorAt(i, col === null ? grey.multiplyScalar(.8 + (c.rot % 1) * .3) : grey.lerp(c.color, Math.min(1, k * 1.6)));
   }
   setKelp(kp, i, k, dummy) {
     const grow = kp.hidden ? 0 : k <= 0 ? .3 : .3 + .7 * easeOutElastic(Math.min(1, k));
     dummy.position.set(kp.x, 0, kp.z); dummy.rotation.set(0, kp.rot, 0); dummy.scale.set(kp.s, Math.max(.0001, kp.s * grow), kp.s); dummy.updateMatrix(); this.kelpMesh.setMatrixAt(i, dummy.matrix);
-    this.kelpMesh.setColorAt(i, k <= 0 ? new THREE.Color(.35, .3, .22) : new THREE.Color(.35, .3, .22).lerp(new THREE.Color(1, 1, 1), Math.min(1, k * 1.5)));
+    this.kelpMesh.setColorAt(i, k <= 0 ? new THREE.Color(.06, .09, .08) : new THREE.Color(.06, .09, .08).lerp(new THREE.Color(1, 1, 1), Math.min(1, k * 1.5)));
   }
 
   // Animate revealing + blooming decor. Returns newly bloomed corals so the game can spawn fish/sparkles.

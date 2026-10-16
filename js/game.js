@@ -53,7 +53,7 @@ export class Game {
   start(cfg) {
     this.clear(); this.cfg = cfg; const w = this.world; w.build(cfg); const r = this.r = rng(cfg.seed + 99);
     const suit = SUITS.find(s => s.id === save.suit) || SUITS[0];
-    this.diver = buildDiver(suit); this.group.add(this.diver);
+    this.diver = buildDiver(suit); this.diver.scale.setScalar(1.25); this.group.add(this.diver);
     const area = w.validCount * w.cell * w.cell;
     this.maxO2 = cfg.endless ? 80 : clamp(Math.round(18 + area / 5.2 * (1.1 + Math.min(.5, cfg.oil + cfg.crust))), 45, 160) + save.up.o2 * 6; this.o2 = this.maxO2;
     this.runUp = { range: 0, power: 0, speed: 0, pulse: 0, o2: 0 }; this.nextTrash = 5; this.nextSpill = 38; this.spill = null; this.trickle = 0; this.coinAcc = 0; this.perfect = false; this.pendingFish = [];

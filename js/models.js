@@ -289,5 +289,5 @@ export function buildCrystals() {
 }
 export function buildArch() {
   const g = new THREE.TorusGeometry(2.2, .7, 6, 10, Math.PI); const r = rng(5), p = g.attributes.position; for (let i = 0; i < p.count; i++) { p.setX(i, p.getX(i) + (r() - .5) * .25); p.setZ(i, p.getZ(i) + (r() - .5) * .25); }
-  return new THREE.Mesh(merge([part(g, (x, y, z, c) => c.setHSL(.55, .12, .2 + y * .04))]), mats.flat);
+  return new THREE.Mesh(merge([part(g, (x, y, z, c) => c.setHSL(.5 + y * .02, .45, .14 + y * .025))]), mats.flat);
 }

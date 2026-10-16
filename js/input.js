@@ -27,7 +27,9 @@ export class Input {
     let x = this.x, z = this.z; const k = this.keys;
     const kx = (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0), kz = (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0) - (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0);
     if (kx || kz) { const l = Math.hypot(kx, kz); x = kx / l; z = kz / l; }
-    return { x, z };
+    // Screen-space stick → world, so "up" always swims up the screen whatever the camera yaw.
+    const c = Math.cos(this.yaw || 0), sn = Math.sin(this.yaw || 0);
+    return { x: x * c + z * sn, z: z * c - x * sn };
   }
   reset() { this.id = null; this.active = false; this.x = this.z = 0; this.joy.classList.remove('on'); }
 }

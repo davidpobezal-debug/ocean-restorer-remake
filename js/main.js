@@ -16,10 +16,13 @@ let renderer;
 try { renderer = new THREE.WebGLRenderer({ canvas, antialias: (devicePixelRatio || 1) < 2.5, powerPreference: 'high-performance' }); }
 catch (e) { $('loading').innerHTML = '<b>Tento prehliadač nepodporuje WebGL 😢</b><small>Skús Chrome alebo Safari.</small>'; throw e; }
 let pixelRatio = Math.min(devicePixelRatio || 1, 2); renderer.setPixelRatio(pixelRatio);
-const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(55, 1, .1, 260);
-scene.fog = new THREE.FogExp2(0x0c6482, .025); scene.background = new THREE.Color(0x0c6482);
-scene.add(new THREE.HemisphereLight(0xd4f7ff, 0x1a4b58, 1.75));
-const sun = new THREE.DirectionalLight(0xfff1d6, 1.45); sun.position.set(6, 12, 5); scene.add(sun);
+// V3: the original's isometric look – camera on the diagonal, narrow lens so it reads almost orthographic.
+const FOV = 26, YAW = Math.PI / 4, LENS = Math.tan(55 * Math.PI / 360) / Math.tan(FOV * Math.PI / 360), FOG_K = .32;
+const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(FOV, 1, .5, 700);
+scene.fog = new THREE.FogExp2(0x062b3b, .01); scene.background = new THREE.Color(0x062b3b);
+// Soft, mostly ambient light like the original's flat shading (.68 + .32·N·L) – keeps colours saturated, never blown out.
+scene.add(new THREE.HemisphereLight(0xf2fbff, 0x6f8f9c, 1.05));
+const sun = new THREE.DirectionalLight(0xfff4e0, .62); sun.position.set(6, 12, 5); scene.add(sun);
 initMaterials();
 
 // God rays + marine snow give depth for almost no cost.
@@ -32,7 +35,7 @@ snowGeo.setAttribute('position', new THREE.BufferAttribute(snowPos, 3));
 const snow = new THREE.Points(snowGeo, new THREE.PointsMaterial({ size: .09, color: 0xdffaff, transparent: true, opacity: .55, map: radialTexture('rgba(255,255,255,1)', 'rgba(255,255,255,0)'), depthWrite: false })); snow.frustumCulled = false; scene.add(snow);
 
 const world = new World(scene), fx = new FX(scene, camera, $('fx')), game = new Game(scene, world, fx);
-const input = new Input($('app'), $('joy'), $('knob'));
+const input = new Input($('app'), $('joy'), $('knob')); input.yaw = YAW;
 audio.enabled = save.sound; audio.musicOn = save.music;
 
 // ---------------- state ----------------
@@ -49,30 +52,32 @@ function resize() {
 }
 addEventListener('resize', resize); visualViewport?.addEventListener('resize', resize);
 
-function followPose() { const a = camera.aspect, h = a < .8 ? 17 : 12.5, d = a < .8 ? 7 : 6.5; return { h, d }; }
+const dirOf = el => new THREE.Vector3(Math.sin(YAW) * Math.cos(el), Math.sin(el), Math.cos(YAW) * Math.cos(el));
+const FOLLOW_DIR = dirOf(.68), OVERVIEW_DIR = dirOf(.95);
+function followPose() { const dist = camera.aspect < .8 ? 48 : 40; return { off: FOLLOW_DIR.clone().multiplyScalar(dist) }; }
 function overviewPose(S, out) {
   const hf = Math.atan(Math.tan(camera.fov * Math.PI / 360) * camera.aspect), need = S * (camera.aspect < .8 ? .62 : .5) / Math.tan(Math.min(hf, camera.fov * Math.PI / 360)), D = Math.max(18, need);
-  out.pos.set(0, D * .86, D * .5); out.look.set(0, 0, -.5); return out;
+  out.pos.copy(OVERVIEW_DIR).multiplyScalar(D); out.look.set(0, 0, 0); return out;
 }
 
 function updateCamera(dt) {
   const p = game.p, S = world.S || 30; let pos = new THREE.Vector3(), look = new THREE.Vector3();
-  if (state === 'home') { cam.orbit += dt * .07; const R = S * .55; pos.set(Math.sin(cam.orbit) * R, S * .42 + 4, Math.cos(cam.orbit) * R); look.set(0, 0, 0); cam.pos.lerp(pos, 1 - Math.exp(-dt * 2)); cam.look.lerp(look, 1 - Math.exp(-dt * 2)); }
+  if (state === 'home') { cam.orbit += dt * .07; const R = S * .55 * LENS; pos.set(Math.sin(cam.orbit + YAW) * R, (S * .42 + 4) * LENS, Math.cos(cam.orbit + YAW) * R); look.set(0, 0, 0); cam.pos.lerp(pos, 1 - Math.exp(-dt * 2)); cam.look.lerp(look, 1 - Math.exp(-dt * 2)); }
   else if (state === 'intro' || state === 'celebrate' || state === 'outro' || (state === 'end' && result?.overview)) {
     const ov = overviewPose(world.viewSize(), { pos: new THREE.Vector3(), look: new THREE.Vector3() }), f = followPose();
-    const fp = new THREE.Vector3(p.x, f.h, p.z + f.d), fl = new THREE.Vector3(p.x, 0, p.z - 1);
+    const fp = new THREE.Vector3(p.x, 0, p.z).add(f.off), fl = new THREE.Vector3(p.x, 0, p.z);
     if (state === 'intro') { const k = smooth(clamp((stateT - .9) / 1.3, 0, 1)); pos.lerpVectors(ov.pos, fp, k); look.lerpVectors(ov.look, fl, k); cam.pos.copy(pos); cam.look.copy(look); }
     else { cam.orbit += dt * .12; ov.pos.applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.sin(cam.orbit) * .25); cam.pos.lerp(ov.pos, 1 - Math.exp(-dt * 2.2)); cam.look.lerp(ov.look, 1 - Math.exp(-dt * 2.2)); }
   } else {
-    const f = followPose(); const lx = p.x + p.vx * .35, lz = p.z + p.vz * .3;
-    cam.pos.x = damp(cam.pos.x, lx, 5, dt); cam.pos.z = damp(cam.pos.z, lz + f.d, 5, dt); cam.pos.y = damp(cam.pos.y, f.h, 3, dt);
-    cam.look.x = damp(cam.look.x, lx, 6, dt); cam.look.z = damp(cam.look.z, lz - 1, 6, dt); cam.look.y = 0;
+    const f = followPose(); const lx = p.x + p.vx * .3, lz = p.z + p.vz * .3;
+    cam.pos.x = damp(cam.pos.x, lx + f.off.x, 5, dt); cam.pos.z = damp(cam.pos.z, lz + f.off.z, 5, dt); cam.pos.y = damp(cam.pos.y, f.off.y, 3, dt);
+    cam.look.x = damp(cam.look.x, lx, 6, dt); cam.look.z = damp(cam.look.z, lz, 6, dt); cam.look.y = 0;
   }
   camera.position.copy(cam.pos); const s = fx.shakeAmt;
   if (s > 0) camera.position.add(new THREE.Vector3((Math.random() - .5) * s, (Math.random() - .5) * s, (Math.random() - .5) * s));
   camera.lookAt(cam.look);
-  scene.fog.density = .5 / Math.max(10, camera.position.distanceTo(cam.look));
-  rays.position.set(cam.look.x, 0, cam.look.z); rays.children.forEach(r => { r.userData.ph += dt * .3; r.material.opacity = .07 + Math.sin(r.userData.ph) * .05; });
+  scene.fog.density = FOG_K / Math.max(10, camera.position.distanceTo(cam.look));
+  rays.position.set(cam.look.x, 0, cam.look.z); rays.children.forEach(r => { r.userData.ph += dt * .3; r.material.opacity = .025 + Math.sin(r.userData.ph) * .02; });
   snow.position.set(Math.floor(cam.look.x / 40) * 40, 0, Math.floor(cam.look.z / 40) * 40);
 }
 
@@ -166,7 +171,7 @@ function startLevel(cfg, vs = activeVs) {
   audio.unlock(); hideScreens(); activeVs = vs || null; current = cfg; result = null; before = after = null;
   game.start(cfg); setBiomeLook(world.biome); shownCoins = 0; lastHearts = -1; lastStars = -1;
   $('hud').classList.toggle('endless', !!cfg.endless); show('dock', !!cfg.endless); dockSig = ''; if (cfg.endless) updateDock(true);
-  overviewPose(world.viewSize(), cam); scene.fog.density = .5 / cam.pos.distanceTo(cam.look); camera.position.copy(cam.pos); camera.lookAt(cam.look);
+  overviewPose(world.viewSize(), cam); scene.fog.density = FOG_K / cam.pos.distanceTo(cam.look); camera.position.copy(cam.pos); camera.lookAt(cam.look);
   state = 'intro'; stateT = 0; captureBefore = true; input.enabled = true; input.reset();
   show('hud'); $('vignette').className = ''; $('banner').className = ''; hideHint();
   const intro = $('intro'); intro.hidden = false; intro.style.animation = 'none'; void intro.offsetWidth; intro.style.animation = '';
@@ -368,9 +373,9 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
 
 // ---------------- loop ----------------
 let last = performance.now();
-function frame(now) {
-  requestAnimationFrame(frame);
-  let dt = Math.min(.05, (now - last) / 1000); last = now; frameAvg = frameAvg * .95 + dt * 1000 * .05;
+function frame(now) { requestAnimationFrame(frame); tick(now); }
+function tick(now) {
+  let dt = clamp((now - last) / 1000, 0, .05); last = Math.max(last, now); frameAvg = frameAvg * .95 + dt * 1000 * .05;
   T += dt; stateT += dt;
   if (state === 'paused' || state === 'loading') { renderer.render(scene, camera); return; }
   let simDt = dt;
@@ -400,4 +405,5 @@ function frame(now) {
 resize(); goHome();
 setTimeout(() => $('loading').classList.add('done'), 1500);
 requestAnimationFrame(t => { last = t; frame(t); setTimeout(() => $('loading').classList.add('done'), 250); });
-window.__ocean = { game, world, save, input, startLevel, levelConfig, endlessConfig, goHome, get state() { return state; } };
+// Debug hook; step(ms) advances one frame by hand (tests in a hidden tab get no rAF).
+window.__ocean = { game, world, save, input, camera, startLevel, levelConfig, endlessConfig, goHome, step: (ms = 33) => tick(last + ms), get state() { return state; } };

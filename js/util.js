@@ -35,6 +35,6 @@ export function fbm(x, y, seed = 0, oct = 3) {
   return s / n;
 }
 
-export const fmt = n => Math.round(n).toLocaleString('sk-SK');
+export const fmt = n => Math.round(n).toLocaleString('en-US');
 export const todayKey = (d = new Date()) => d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
 export const dayNumber = (d = new Date()) => Math.floor((Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) - Date.UTC(2026, 9, 1)) / 864e5) + 1;

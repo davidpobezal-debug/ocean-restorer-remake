@@ -1,5 +1,5 @@
 // Level layout, the "power-wash" seabed mask and the reef decoration that blooms when cleaned.
-// Expedition mode uses one big seabed whose rings (biomes) are revealed one after another.
+// Expedition mode is a chain of big regions (one biome each) that open one after another.
 import * as THREE from 'three';
 import { rng, fbm, clamp, easeOutElastic, hash2 } from './util.js';
 import { mats, coralGeometries, kelpGeometry, swayMaterial, rockGeometry, buildWreck, buildCrystals, buildArch } from './models.js';
@@ -7,12 +7,14 @@ import { ANIMALS } from './save.js';
 
 // V3 palette follows the original V2.2.2: dark water, saturated restored seabed, candy-coloured corals.
 export const BIOMES = [
-  { name: 'Tropický útes', water: 0x062b3b, fog: 0x062b3b, sand: 0x21aba1, dirt: 0x0e1a22, oil: 0x0a0a12, rock: 0x123542, rim: 0x8ffff0, caust: 0xd8fff6, corals: [0xf25ca1, 0x876be8, 0x36d9b5, 0xfa9952, 0xffe066, 0x4fb3ff], kelp: 8, center: 'arch' },
-  { name: 'Jantárové vrakovisko', water: 0x0f2e36, fog: 0x0f2e36, sand: 0xb87d3b, dirt: 0x17160f, oil: 0x0c0a08, rock: 0x2b2a26, rim: 0xffe9a8, caust: 0xfff0c8, corals: [0xffa83d, 0xed595e, 0x63d4a8, 0xffd978, 0xe0607e], kelp: 10, center: 'wreck' },
-  { name: 'Kelpový les', water: 0x072b20, fog: 0x072b20, sand: 0x5fae4e, dirt: 0x0f1a12, oil: 0x090d09, rock: 0x173a2c, rim: 0xd8ffb0, caust: 0xf0ffd8, corals: [0xc6f05a, 0xffd24a, 0xff8a5c, 0x7be0ff, 0xf28bd8], kelp: 70, center: 'kelp' },
-  { name: 'Svetielkujúce hlbiny', water: 0x0e0e2b, fog: 0x0e0e2b, sand: 0x4d40a6, dirt: 0x0d0b1c, oil: 0x060510, rock: 0x1a1c40, rim: 0x8ff3ff, caust: 0xb8e8ff, corals: [0x66d6ff, 0xd46eff, 0x59ffc9, 0xfa87d4, 0x8f9bff], kelp: 6, center: 'crystals', glow: true },
+  { name: 'Tropical Reef', water: 0x062b3b, fog: 0x062b3b, sand: 0x21aba1, dirt: 0x0e1a22, oil: 0x0a0a12, rock: 0x123542, rim: 0x8ffff0, caust: 0xd8fff6, corals: [0xf25ca1, 0x876be8, 0x36d9b5, 0xfa9952, 0xffe066, 0x4fb3ff], kelp: 8, center: 'arch' },
+  { name: 'Amber Wreckyard', water: 0x0f2e36, fog: 0x0f2e36, sand: 0xb87d3b, dirt: 0x17160f, oil: 0x0c0a08, rock: 0x2b2a26, rim: 0xffe9a8, caust: 0xfff0c8, corals: [0xffa83d, 0xed595e, 0x63d4a8, 0xffd978, 0xe0607e], kelp: 10, center: 'wreck' },
+  { name: 'Kelp Forest', water: 0x072b20, fog: 0x072b20, sand: 0x5fae4e, dirt: 0x0f1a12, oil: 0x090d09, rock: 0x173a2c, rim: 0xd8ffb0, caust: 0xf0ffd8, corals: [0xc6f05a, 0xffd24a, 0xff8a5c, 0x7be0ff, 0xf28bd8], kelp: 70, center: 'kelp' },
+  { name: 'Glowing Deep', water: 0x0e0e2b, fog: 0x0e0e2b, sand: 0x4d40a6, dirt: 0x0d0b1c, oil: 0x060510, rock: 0x1a1c40, rim: 0x8ff3ff, caust: 0xb8e8ff, corals: [0x66d6ff, 0xd46eff, 0x59ffc9, 0xfa87d4, 0x8f9bff], kelp: 6, center: 'crystals', glow: true },
 ];
-export const RINGS = [10, 15.5, 21, 99];
+// Expedition regions: big blobs in a row along +x, each touching the next through a passage.
+export const REGIONS = [{ cx: 0, cz: 0, r: 11 }, { cx: 22, cz: -3, r: 12.5 }, { cx: 47, cz: 2, r: 14 }, { cx: 75, cz: -2, r: 16 }];
+const EX = { ox: -15, oz: -21, sx: 110, sz: 42, cell: .3125 };
 
 export function levelConfig(n, daily = 0) {
   const seed = n * 1013 + 7;
@@ -42,7 +44,7 @@ void main(){ vec4 wp = modelMatrix * vec4(position,1.); vW = wp.xz; vec4 mvPosit
 #include <fog_vertex>
 }`;
 const frag = `precision highp float;
-uniform sampler2D uMask; uniform float uTime, uSize, uFever, uReveal; uniform vec3 uRings;
+uniform sampler2D uMask; uniform float uTime, uFever, uReveal, uUnlocked; uniform vec2 uOrigin, uSize;
 uniform vec3 uSand[4]; uniform vec3 uDirt[4]; uniform vec3 uOil[4]; uniform vec3 uRock[4]; uniform vec3 uRim[4]; uniform vec3 uCaust[4];
 varying vec2 vW;
 #include <fog_pars_fragment>
@@ -51,11 +53,12 @@ float n(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f); return mix(
 float caust(vec2 p, float t){ vec2 q = p * 1.25; float c = sin(q.x*1.7 + sin(q.y*1.3 + t)*1.2 + t*.8) + sin(q.y*1.9 + sin(q.x*1.1 - t*.7)*1.3 - t*.6) + sin((q.x+q.y)*1.2 + sin(q.x*.7 + t*.5)*1.5 + t*.4); c = abs(c) / 3.; return pow(1. - c, 7.); }
 vec3 pick(vec3 a, vec3 b, vec3 c, vec3 d, vec3 w){ return mix(mix(mix(a, b, w.x), c, w.y), d, w.z); }
 void main(){
-  vec2 uv = vW / uSize + .5; vec4 m = texture2D(uMask, uv);
+  vec2 uv = (vW - uOrigin) / uSize; vec4 m = texture2D(uMask, uv);
   float inside = step(0., uv.x) * step(uv.x, 1.) * step(0., uv.y) * step(uv.y, 1.);
   float valid = smoothstep(.35, .65, m.b) * inside;
-  float dist = length(vW), wob = (n(vW * .35) - .5) * 2.;
-  vec3 w = vec3(smoothstep(uRings.x - 1.5, uRings.x + 1.5, dist + wob), smoothstep(uRings.y - 1.5, uRings.y + 1.5, dist + wob), smoothstep(uRings.z - 1.5, uRings.z + 1.5, dist + wob));
+  // Region id lives in the mask's alpha: every region is one solid biome colour with a crisp border.
+  float wob = (n(vW * .35) - .5) * 2., reg = m.a * 3.;
+  vec3 w = vec3(smoothstep(.45, .55, reg), smoothstep(1.45, 1.55, reg), smoothstep(2.45, 2.55, reg));
   vec3 cSand = pick(uSand[0], uSand[1], uSand[2], uSand[3], w), cDirt = pick(uDirt[0], uDirt[1], uDirt[2], uDirt[3], w), cOil = pick(uOil[0], uOil[1], uOil[2], uOil[3], w);
   vec3 cRock = pick(uRock[0], uRock[1], uRock[2], uRock[3], w), cRim = pick(uRim[0], uRim[1], uRim[2], uRim[3], w), cCaust = pick(uCaust[0], uCaust[1], uCaust[2], uCaust[3], w);
   float nn = n(vW * 2.3), n2 = n(vW * .55 + 3.), n3 = n(vW * 6.1);
@@ -79,10 +82,12 @@ void main(){
   col += rim * cRim * (.32 + .18 * sin(uTime * 6. + vW.x * 3.)) * valid;
   col += cl * uFever * .12 * (.5 + .5 * cos(6.283 * (vW.x * .05 + uTime * .3 + vec3(0., .33, .67))));
   // Undiscovered seabed sits in murky darkness behind a glowing current.
-  float locked = smoothstep(uReveal - .3, uReveal + .9, dist + wob * .4);
+  // Regions not yet opened sit in darkness; the opening one is swept left→right by a glowing current.
+  float future = step(uUnlocked + .5, reg), cur = step(uUnlocked - .5, reg) * (1. - future);
+  float locked = max(future, cur * smoothstep(uReveal - .3, uReveal + .9, vW.x + wob * .4));
   col = mix(col, cDirt * .35 + cRock * .25, locked * .85);
-  float front = (1. - smoothstep(0., .55, abs(dist + wob * .4 - uReveal - .25))) * step(uReveal, 900.);
-  col += front * cRim * (.3 + .25 * sin(uTime * 4. + atan(vW.y, vW.x) * 9.)) * valid;
+  float front = cur * (1. - smoothstep(0., .55, abs(vW.x + wob * .4 - uReveal - .25))) * step(uReveal, 900.);
+  col += front * cRim * (.3 + .25 * sin(uTime * 4. + vW.y * 1.7)) * valid;
   vec3 rock = cRock * (.55 + .55 * n(vW * .7)) * (.8 + .3 * nn);
   col = mix(rock, col, valid);
   gl_FragColor = vec4(col, 1.);
@@ -96,113 +101,135 @@ export class World {
 
   build(cfg) {
     if (this.group) this.dispose();
-    const endless = this.endless = !!cfg.endless, M = this.M = endless ? 192 : 128;
-    const S = this.S = cfg.size, r = rng(cfg.seed); this.cfg = cfg;
+    const endless = this.endless = !!cfg.endless, r = rng(cfg.seed); this.cfg = cfg;
+    // Levels are one square biome; the expedition is a long strip of four regions.
+    if (endless) { this.cell = EX.cell; this.ox = EX.ox; this.oz = EX.oz; this.Mx = Math.round(EX.sx / EX.cell); this.Mz = Math.round(EX.sz / EX.cell); }
+    else { this.Mx = this.Mz = 128; this.cell = cfg.size / 128; this.ox = this.oz = -cfg.size / 2; }
+    this.Sx = this.Mx * this.cell; this.Sz = this.Mz * this.cell; this.S = endless ? this.Sx : cfg.size;
     this.biomeOf = endless ? [0, 1, 2, 3] : [cfg.biome, cfg.biome, cfg.biome, cfg.biome];
     this.biome = BIOMES[this.biomeOf[0]];
-    this.rings = endless ? RINGS : [1e4, 1e4, 1e4, 1e4];
     this.group = new THREE.Group(); this.scene.add(this.group);
-    this.cell = S / M; const N = M * M;
-    this.clean = new Float32Array(N); this.hard = new Uint8Array(N); this.valid = new Uint8Array(N); this.shape = new Uint8Array(N); this.region = new Uint8Array(N); this.dist = new Float32Array(N);
+    const Mx = this.Mx, N = Mx * this.Mz, S = cfg.size;
+    this.clean = new Float32Array(N); this.hard = new Uint8Array(N); this.valid = new Uint8Array(N); this.shape = new Uint8Array(N); this.region = new Uint8Array(N);
     this.tex = new Uint8Array(N * 4); this.validCount = 0; this.doneCount = 0; this.dirty = false;
     this.regionValid = [0, 0, 0, 0]; this.regionDone = [0, 0, 0, 0]; this.unlocked = 0;
     const seed = cfg.seed % 1000;
-    for (let j = 0; j < M; j++) for (let i = 0; i < M; i++) {
-      const x = (i + .5) * this.cell - S / 2, z = (j + .5) * this.cell - S / 2, k = j * M + i, d = Math.hypot(x, z);
-      const warp = (fbm(x * .11, z * .11, seed, 3) - .5) * S * (endless ? .22 : .42);
-      let ok = d + warp < S * .45;
-      if (ok && d > 4 && fbm(x * .22, z * .22, seed + 50, 2) > .74) ok = false; // rock islands
+    for (let k = 0; k < N; k++) {
+      const x = this.cellX(k), z = this.cellZ(k), d = Math.hypot(x, z);
+      let ok, reg = 0;
+      if (endless) {
+        // Nearest region by normalised distance, with a wobbly coastline and guaranteed passages.
+        let best = 9; for (let i = 0; i < 4; i++) { const R = REGIONS[i], q = Math.hypot(x - R.cx, z - R.cz) / R.r + (fbm(x * .1, z * .1, seed + i * 31, 3) - .5) * .42; if (q < best) { best = q; reg = i; } }
+        ok = best < 1;
+        for (let i = 0; i < 3 && !ok; i++) { const A = REGIONS[i], B = REGIONS[i + 1], vx = B.cx - A.cx, vz = B.cz - A.cz, t = clamp(((x - A.cx) * vx + (z - A.cz) * vz) / (vx * vx + vz * vz), 0, 1); if (Math.hypot(x - A.cx - vx * t, z - A.cz - vz * t) < 2.6) ok = true; }
+      } else ok = d + (fbm(x * .11, z * .11, seed, 3) - .5) * S * .42 < S * .45;
+      if (ok && d > 4.5 && fbm(x * .22, z * .22, seed + 50, 2) > .74) ok = false; // rock islands
       if (d < 3) ok = true;
-      this.shape[k] = ok ? 1 : 0; this.dist[k] = d;
-      this.region[k] = d < this.rings[0] ? 0 : d < this.rings[1] ? 1 : d < this.rings[2] ? 2 : 3;
-      const hn = fbm(x * .16, z * .16, seed + 90, 3), oil = endless ? cfg.oil * (.4 + this.region[k] * .35) : cfg.oil, crust = endless ? (this.region[k] >= 2 ? cfg.crust * this.region[k] : 0) : cfg.crust;
+      this.shape[k] = ok ? 1 : 0; this.region[k] = reg;
+      const hn = fbm(x * .16, z * .16, seed + 90, 3), oil = endless ? cfg.oil * (.4 + reg * .35) : cfg.oil, crust = endless ? (reg >= 2 ? cfg.crust * reg : 0) : cfg.crust;
       this.hard[k] = hn > 1 - crust * 1.3 ? 2 : hn > 1 - oil * 1.3 ? 1 : 0;
       if (d < 4) this.hard[k] = 0;
-      this.tex[k * 4] = 0; this.tex[k * 4 + 1] = this.hard[k] * 127; this.tex[k * 4 + 3] = 255;
+      this.tex[k * 4] = 0; this.tex[k * 4 + 1] = this.hard[k] * 127; this.tex[k * 4 + 3] = reg * 85;
     }
     // Drop pockets the diver can never reach (enclosed by rock), so 100 % is always possible.
-    const seen = new Uint8Array(N), stack = [(M >> 1) * M + (M >> 1)]; seen[stack[0]] = 1;
-    while (stack.length) { const k = stack.pop(), i = k % M; for (const o of [i > 0 ? -1 : 0, i < M - 1 ? 1 : 0, -M, M]) { const nk = k + o; if (o && nk >= 0 && nk < N && !seen[nk] && this.shape[nk]) { seen[nk] = 1; stack.push(nk); } } }
+    const seen = new Uint8Array(N), stack = [this.idx(0, 0)]; seen[stack[0]] = 1;
+    while (stack.length) { const k = stack.pop(), i = k % Mx; for (const o of [i > 0 ? -1 : 0, i < Mx - 1 ? 1 : 0, -Mx, Mx]) { const nk = k + o; if (o && nk >= 0 && nk < N && !seen[nk] && this.shape[nk]) { seen[nk] = 1; stack.push(nk); } } }
     for (let k = 0; k < N; k++) {
       if (this.shape[k] && !seen[k]) this.shape[k] = 0;
       this.tex[k * 4 + 2] = this.shape[k] ? 255 : 0;
       if (!this.shape[k]) continue; this.regionValid[this.region[k]]++;
       if (this.region[k] === 0) { this.valid[k] = 1; this.validCount++; }
     }
-    this.reveal = endless ? this.rings[0] : 1e4; this.revealTarget = this.reveal; this.pending = []; this.pendingAt = 0;
-    this.texture = new THREE.DataTexture(this.tex, M, M, THREE.RGBAFormat);
+    this.reveal = 1e4; this.revealTarget = 1e4; this.pending = []; this.pendingAt = 0;
+    this.texture = new THREE.DataTexture(this.tex, Mx, this.Mz, THREE.RGBAFormat);
     this.texture.magFilter = THREE.LinearFilter; this.texture.minFilter = THREE.LinearFilter; this.texture.needsUpdate = true;
     const arr = key => this.biomeOf.map(b => new THREE.Color(BIOMES[b][key]));
-    const uniforms = THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uTime: { value: 0 }, uSize: { value: S }, uFever: { value: 0 }, uReveal: { value: this.reveal }, uRings: { value: new THREE.Vector3(...this.rings.slice(0, 3).map(v => Math.min(v, 1e4))) } }]);
+    const uniforms = THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uTime: { value: 0 }, uFever: { value: 0 }, uReveal: { value: 1e4 }, uUnlocked: { value: endless ? 0 : 9 }, uOrigin: { value: new THREE.Vector2(this.ox, this.oz) }, uSize: { value: new THREE.Vector2(this.Sx, this.Sz) } }]);
     for (const [u, key] of [['uSand', 'sand'], ['uDirt', 'dirt'], ['uOil', 'oil'], ['uRock', 'rock'], ['uRim', 'rim'], ['uCaust', 'caust']]) uniforms[u] = { value: arr(key) };
     uniforms.uMask = { value: this.texture };
     this.floorMat = new THREE.ShaderMaterial({ vertexShader: vert, fragmentShader: frag, uniforms, fog: true });
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(S * 5, S * 5), this.floorMat); floor.rotation.x = -Math.PI / 2; this.group.add(floor);
+    const big = Math.max(this.Sx, this.Sz) * 3, floor = new THREE.Mesh(new THREE.PlaneGeometry(big, big), this.floorMat); floor.rotation.x = -Math.PI / 2; floor.position.set(this.ox + this.Sx / 2, 0, this.oz + this.Sz / 2); this.group.add(floor);
     this.buildDecor(r);
   }
 
-  idx(x, z) { const M = this.M, i = Math.floor((x + this.S / 2) / this.cell), j = Math.floor((z + this.S / 2) / this.cell); return i < 0 || j < 0 || i >= M || j >= M ? -1 : j * M + i; }
+  cellX(k) { return this.ox + (k % this.Mx + .5) * this.cell; }
+  cellZ(k) { return this.oz + (Math.floor(k / this.Mx) + .5) * this.cell; }
+  idx(x, z) { const i = Math.floor((x - this.ox) / this.cell), j = Math.floor((z - this.oz) / this.cell); return i < 0 || j < 0 || i >= this.Mx || j >= this.Mz ? -1 : j * this.Mx + i; }
   isValid(x, z) { const k = this.idx(x, z); return k >= 0 && this.valid[k] === 1; }
   isShape(x, z) { const k = this.idx(x, z); return k >= 0 && this.shape[k] === 1; }
   cleanAt(x, z) { const k = this.idx(x, z); return k < 0 ? 1 : this.clean[k]; }
   pct() { return this.validCount ? this.doneCount / this.validCount : 0; }
   regionPct(r = this.unlocked) { return this.regionValid[r] ? this.regionDone[r] / this.regionValid[r] : 1; }
-  regionAt(x, z) { const d = Math.hypot(x, z); return d < this.rings[0] ? 0 : d < this.rings[1] ? 1 : d < this.rings[2] ? 2 : 3; }
+  regionAt(x, z) {
+    if (!this.endless) return 0; const k = this.idx(x, z); if (k >= 0) return this.region[k];
+    let best = 0, bd = Infinity; REGIONS.forEach((R, i) => { const q = Math.hypot(x - R.cx, z - R.cz) / R.r; if (q < bd) { bd = q; best = i; } }); return best;
+  }
   biomeAt(x, z) { return BIOMES[this.biomeOf[this.regionAt(x, z)]]; }
-  viewSize() { return this.endless ? Math.min(this.S, Math.min(this.reveal, this.S * .5) * 2.15) : this.S; }
+  // Has the opening current already passed this spot?
+  revealedIn(reg, x) { return !this.endless || reg < this.unlocked || (reg === this.unlocked && x <= this.reveal); }
+  isRevealed(x, z) { return this.revealedIn(this.regionAt(x, z), x); }
+  bounds() { return { x0: this.ox, x1: this.ox + this.Sx, z0: this.oz, z1: this.oz + this.Sz }; }
+  // Overview framing: the regions opened so far.
+  viewSize() { if (!this.endless) return this.S; const a = REGIONS[0], b = REGIONS[this.unlocked]; return Math.max(b.cx + b.r - (a.cx - a.r), b.r * 2.2); }
+  viewCenter() { if (!this.endless) return { x: 0, z: 0 }; const a = REGIONS[0], b = REGIONS[this.unlocked]; return { x: (a.cx - a.r + b.cx + b.r) / 2, z: (a.cz + b.cz) / 2 }; }
 
-  // Start revealing the next ring; cells become playable as the glowing current sweeps past them.
+  // Open the next region; cells become playable as the glowing current sweeps across it.
   unlock() {
-    if (!this.endless || this.unlocked >= 3) return false; this.unlocked++;
-    this.revealTarget = this.unlocked >= 3 ? this.S * .55 : this.rings[this.unlocked];
-    const list = []; for (let k = 0; k < this.shape.length; k++) if (this.shape[k] && this.region[k] === this.unlocked) list.push(k);
-    list.sort((a, b) => this.dist[a] - this.dist[b]); this.pending = list; this.pendingAt = 0; return true;
+    if (!this.endless || this.unlocked >= 3) return false; const n = ++this.unlocked;
+    const list = []; for (let k = 0; k < this.shape.length; k++) if (this.shape[k] && this.region[k] === n) list.push(k);
+    list.sort((a, b) => a % this.Mx - b % this.Mx); this.pending = list; this.pendingAt = 0;
+    this.reveal = list.length ? this.cellX(list[0]) - .5 : 1e4; this.revealTarget = list.length ? this.cellX(list[list.length - 1]) + .5 : 1e4;
+    const u = this.floorMat.uniforms; u.uUnlocked.value = n; u.uReveal.value = this.reveal; return true;
   }
 
-  randomPoint(r, { minR = 0, maxR = 0, clearance = 1, maxTries = 200, avoid = [], shape = false } = {}) {
-    const max = maxR || (this.endless ? Math.min(this.reveal - .8, this.S * .47) : this.S * .47), test = shape ? (x, z) => this.isShape(x, z) : (x, z) => this.isValid(x, z);
+  randomPoint(r, { minR = 0, maxR = 0, clearance = 1, maxTries = 200, avoid = [], shape = false, region } = {}) {
+    let cx = 0, cz = 0, max = maxR || this.S * .47, reg = -1;
+    if (this.endless) { reg = region ?? this.unlocked; const R = REGIONS[reg]; cx = R.cx; cz = R.cz; max = R.r * 1.05; }
+    const test = (x, z) => (shape ? this.isShape(x, z) : this.isValid(x, z)) && (reg < 0 || this.regionAt(x, z) === reg);
     for (let t = 0; t < maxTries; t++) {
-      const a = r() * Math.PI * 2, d = minR + Math.sqrt(r()) * Math.max(.1, max - minR), x = Math.cos(a) * d, z = Math.sin(a) * d;
+      const a = r() * Math.PI * 2, d = minR + Math.sqrt(r()) * Math.max(.1, max - minR), x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d;
       if (!test(x, z)) continue; let ok = true;
       for (const q of [[clearance, 0], [-clearance, 0], [0, clearance], [0, -clearance]]) if (!test(x + q[0], z + q[1])) { ok = false; break; }
       if (ok) for (const p of avoid) if (Math.hypot(p.x - x, p.z - z) < (p.r || 2)) { ok = false; break; }
       if (ok) return { x, z };
     }
-    return { x: (r() - .5) * 4, z: (r() - .5) * 4 };
+    return { x: cx + (r() - .5) * 4, z: cz + (r() - .5) * 4 };
   }
   pointNear(x, z, minD, maxD, r = Math.random) {
     for (let t = 0; t < 40; t++) { const a = r() * 6.283, d = minD + r() * (maxD - minD), px = x + Math.cos(a) * d, pz = z + Math.sin(a) * d; if (this.isValid(px, pz) && this.isValid(px + .6, pz) && this.isValid(px - .6, pz)) return { x: px, z: pz }; }
     return null;
   }
 
+  // Visit every mask cell within radius of (x, z).
+  cellsAround(x, z, radius, fn) {
+    const c = this.cell, i0 = Math.max(0, Math.floor((x - radius - this.ox) / c)), i1 = Math.min(this.Mx - 1, Math.floor((x + radius - this.ox) / c));
+    const j0 = Math.max(0, Math.floor((z - radius - this.oz) / c)), j1 = Math.min(this.Mz - 1, Math.floor((z + radius - this.oz) / c));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) fn(j * this.Mx + i, this.ox + (i + .5) * c, this.oz + (j + .5) * c, i, j);
+  }
+
   // The brush. Returns cells completed and whether dirt was touched (for sound/particles).
   brush(x, z, radius, amount) {
-    const M = this.M, c = this.cell, i0 = Math.max(0, Math.floor((x - radius + this.S / 2) / c)), i1 = Math.min(M - 1, Math.floor((x + radius + this.S / 2) / c));
-    const j0 = Math.max(0, Math.floor((z - radius + this.S / 2) / c)), j1 = Math.min(M - 1, Math.floor((z + radius + this.S / 2) / c));
     let done = 0, touched = 0, hardTouched = 0;
-    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
-      const k = j * M + i; if (!this.valid[k] || this.clean[k] >= 1) continue;
-      const cx = (i + .5) * c - this.S / 2, cz = (j + .5) * c - this.S / 2, d = Math.hypot(cx - x, cz - z) / radius; if (d > 1) continue;
+    this.cellsAround(x, z, radius, (k, cx, cz) => {
+      if (!this.valid[k] || this.clean[k] >= 1) return;
+      const d = Math.hypot(cx - x, cz - z) / radius; if (d > 1) return;
       const fall = d < .6 ? 1 : 1 - (d - .6) / .4, before = this.clean[k];
       const v = Math.min(1, before + amount * fall * HARD_RATE[this.hard[k]]); this.clean[k] = v; touched++; if (this.hard[k]) hardTouched++;
       if (before < DONE && v >= DONE) { done++; this.doneCount++; this.regionDone[this.region[k]]++; if (v < 1) this.clean[k] = Math.max(v, DONE); }
       this.tex[k * 4] = Math.round(this.clean[k] * 255);
-    }
+    });
     if (touched) this.dirty = true;
     return { done, touched, hardTouched };
   }
 
   // Oil spill: re-dirties clean seabed and bleaches the corals it reaches.
   pollute(x, z, radius) {
-    const M = this.M, c = this.cell, i0 = Math.max(0, Math.floor((x - radius + this.S / 2) / c)), i1 = Math.min(M - 1, Math.floor((x + radius + this.S / 2) / c));
-    const j0 = Math.max(0, Math.floor((z - radius + this.S / 2) / c)), j1 = Math.min(M - 1, Math.floor((z + radius + this.S / 2) / c));
     let n = 0;
-    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
-      const k = j * M + i; if (!this.valid[k]) continue;
-      const cx = (i + .5) * c - this.S / 2, cz = (j + .5) * c - this.S / 2, d = Math.hypot(cx - x, cz - z) + (hash2(i, j, 5) - .5) * .8; if (d > radius) continue;
+    this.cellsAround(x, z, radius, (k, cx, cz, i, j) => {
+      if (!this.valid[k]) return; const d = Math.hypot(cx - x, cz - z) + (hash2(i, j, 5) - .5) * .8; if (d > radius) return;
       if (this.clean[k] >= DONE) { this.doneCount--; this.regionDone[this.region[k]]--; }
       this.clean[k] = 0; this.hard[k] = Math.max(1, this.hard[k]); this.tex[k * 4] = 0; this.tex[k * 4 + 1] = this.hard[k] * 127; n++;
-    }
+    });
     const touched = new Set(), dummy = this._d || (this._d = new THREE.Object3D());
     for (const co of this.corals) if (co.t >= 0 && Math.hypot(co.x - x, co.z - z) < radius) { co.t = -1; this.setCoral(this.coralMeshes[co.type], co, co.slot, 0, dummy); touched.add(co.type); }
     for (const ti of touched) { const m = this.coralMeshes[ti]; m.instanceMatrix.needsUpdate = true; m.instanceColor.needsUpdate = true; }
@@ -211,55 +238,57 @@ export class World {
 
   // Finish edge cells that are surrounded by clean area so 100 % never hinges on a hidden pixel.
   sweepStragglers() {
-    const M = this.M; let fixed = 0;
-    for (let j = 1; j < M - 1; j++) for (let i = 1; i < M - 1; i++) {
-      const k = j * M + i; if (!this.valid[k] || this.clean[k] >= DONE) continue;
-      let n = 0, v = 0; for (const o of [1, -1, M, -M]) { if (!this.valid[k + o] || this.clean[k + o] >= DONE) n++; v++; }
+    const Mx = this.Mx; let fixed = 0;
+    for (let j = 1; j < this.Mz - 1; j++) for (let i = 1; i < Mx - 1; i++) {
+      const k = j * Mx + i; if (!this.valid[k] || this.clean[k] >= DONE) continue;
+      let n = 0, v = 0; for (const o of [1, -1, Mx, -Mx]) { if (!this.valid[k + o] || this.clean[k + o] >= DONE) n++; v++; }
       if (n === v) { this.clean[k] = 1; this.tex[k * 4] = 255; this.doneCount++; this.regionDone[this.region[k]]++; fixed++; }
     }
     if (fixed) this.dirty = true; return fixed;
   }
 
-  nearestDirty(x, z) {
-    const M = this.M; let best = null, bd = Infinity; const c = this.cell;
-    for (let j = 0; j < M; j += 2) for (let i = 0; i < M; i += 2) {
-      const k = j * M + i; if (!this.valid[k] || this.clean[k] >= DONE) continue;
-      const cx = (i + .5) * c - this.S / 2, cz = (j + .5) * c - this.S / 2, d = (cx - x) ** 2 + (cz - z) ** 2; if (d < bd) { bd = d; best = { x: cx, z: cz }; }
+  nearestDirty(x, z, maxD = Infinity) {
+    let best = null, bd = maxD * maxD;
+    for (let j = 0; j < this.Mz; j += 2) for (let i = 0; i < this.Mx; i += 2) {
+      const k = j * this.Mx + i; if (!this.valid[k] || this.clean[k] >= DONE) continue;
+      const cx = this.ox + (i + .5) * this.cell, cz = this.oz + (j + .5) * this.cell, d = (cx - x) ** 2 + (cz - z) ** 2; if (d < bd) { bd = d; best = { x: cx, z: cz }; }
     }
-    if (!best) for (let k = 0; k < M * M; k++) if (this.valid[k] && this.clean[k] < DONE) { best = { x: (k % M + .5) * c - this.S / 2, z: (Math.floor(k / M) + .5) * c - this.S / 2 }; break; }
+    if (!best && maxD === Infinity) for (let k = 0; k < this.valid.length; k++) if (this.valid[k] && this.clean[k] < DONE) { best = { x: this.cellX(k), z: this.cellZ(k) }; break; }
     return best;
   }
 
   remainingDirt() { return this.validCount - this.doneCount; }
 
-  // Wordle-style mini map for the daily share text.
+  // Wordle-style mini map for the daily share text (wider than tall for the expedition strip).
   emojiGrid(n = 6) {
-    const M = this.M, rows = []; for (let gy = 0; gy < n; gy++) { let row = ''; for (let gx = 0; gx < n; gx++) {
-      let v = 0, t = 0; const s = M / n; for (let j = Math.floor(gy * s); j < (gy + 1) * s; j += 2) for (let i = Math.floor(gx * s); i < (gx + 1) * s; i += 2) { const k = j * M + i; if (this.shape[k]) { t++; v += this.valid[k] && this.clean[k] >= DONE ? 1 : 0; } }
+    const cols = this.endless ? n + 3 : n, rows = this.endless ? 3 : n, sx = this.Mx / cols, sz = this.Mz / rows, out = [];
+    for (let gy = 0; gy < rows; gy++) { let row = ''; for (let gx = 0; gx < cols; gx++) {
+      let v = 0, t = 0; for (let j = Math.floor(gy * sz); j < (gy + 1) * sz; j += 2) for (let i = Math.floor(gx * sx); i < (gx + 1) * sx; i += 2) { const k = j * this.Mx + i; if (this.shape[k]) { t++; v += this.valid[k] && this.clean[k] >= DONE ? 1 : 0; } }
       row += !t ? '⬛' : v / t > .9 ? '🪸' : v / t > .6 ? '🟩' : v / t > .25 ? '🟨' : '🟫';
-    } rows.push(row); }
-    return rows.join('\n');
+    } out.push(row); }
+    return out.join('\n');
   }
 
   buildDecor(r) {
-    const S = this.S, dummy = new THREE.Object3D(), E = this.endless;
-    // Centerpieces: one per biome (expedition places them in their own ring).
+    const S = this.S, dummy = new THREE.Object3D(), E = this.endless, home = { x: 0, z: 0, r: 4.5 };
+    // Centerpieces: one per biome (the expedition places each in its own region).
     this.centerpieces = [];
-    const centers = E ? [[0, 4, 9], [1, 11.5, 15], [3, 22, 26]] : [[this.cfg.biome, S * .2, 0]];
-    for (const [bi, minR, maxR] of centers) {
-      const cp = this.randomPoint(r, { minR, maxR, clearance: 2.5, shape: true }); let m = null; const kind = BIOMES[bi].center;
+    const centers = E ? [[0, 0], [1, 1], [3, 3]] : [[this.cfg.biome, -1]];
+    for (const [bi, reg] of centers) {
+      const cp = E ? this.randomPoint(r, { region: reg, clearance: 2.5, shape: true, avoid: [home] }) : this.randomPoint(r, { minR: S * .2, clearance: 2.5, shape: true });
+      let m = null; const kind = BIOMES[bi].center;
       if (kind === 'wreck') { m = buildWreck(); m.scale.setScalar(.8); } else if (kind === 'crystals') m = buildCrystals(); else if (kind === 'arch') m = buildArch();
       if (m) { m.position.set(cp.x, 0, cp.z); m.rotation.y = r() * 6; this.group.add(m); this.centerpieces.push({ ...cp, r: 3 }); }
     }
     this.centerpiece = this.centerpieces[0] || { x: 99, z: 99, r: 0 };
-    // Corals: start bleached grey, bloom into colour when their cell is cleaned.
-    let shapeArea = 0; for (const v of this.regionValid) shapeArea += v; shapeArea *= this.cell * this.cell;
-    const n = Math.min(E ? 520 : 300, Math.floor(shapeArea * .34)); this.corals = [];
-    const perType = this.coralGeos.map(() => []);
-    for (let i = 0; i < n; i++) {
-      const p = this.randomPoint(r, { clearance: .3, maxTries: 20, shape: true, maxR: S * .47 }); if (Math.hypot(p.x, p.z) < 2.2) continue;
-      const type = r.int(0, this.coralGeos.length - 1), d = Math.hypot(p.x, p.z);
-      const c = { x: p.x, z: p.z, k: this.idx(p.x, p.z), d, type, rot: r() * 6.28, s: .65 + r() * .75 * (type === 5 ? .6 : 1), color: new THREE.Color(r.pick(this.biomeAt(p.x, p.z).corals)), t: -1, slot: perType[type].length, hidden: d > this.reveal };
+    // Corals: start bleached, bloom into colour when their cell is cleaned.
+    const cells = this.regionValid.reduce((a, b) => a + b, 0) || 1, total = Math.min(E ? 560 : 300, Math.floor(cells * this.cell * this.cell * .34)); this.corals = [];
+    const perType = this.coralGeos.map(() => []), plan = E ? this.regionValid.map((v, i) => [i, Math.round(total * v / cells)]) : [[-1, total]];
+    for (const [reg, cnt] of plan) for (let i = 0; i < cnt; i++) {
+      const p = E ? this.randomPoint(r, { region: reg, clearance: .3, maxTries: 20, shape: true }) : this.randomPoint(r, { clearance: .3, maxTries: 20, shape: true, maxR: S * .47 });
+      if (Math.hypot(p.x, p.z) < 2.2) continue;
+      const type = r.int(0, this.coralGeos.length - 1), rg = this.regionAt(p.x, p.z);
+      const c = { x: p.x, z: p.z, k: this.idx(p.x, p.z), reg: rg, type, rot: r() * 6.28, s: .65 + r() * .75 * (type === 5 ? .6 : 1), color: new THREE.Color(r.pick(this.biomeAt(p.x, p.z).corals)), t: -1, slot: perType[type].length, hidden: !this.revealedIn(rg, p.x) };
       perType[type].push(c); this.corals.push(c);
     }
     this.coralMeshes = this.coralGeos.map((g, ti) => {
@@ -267,16 +296,20 @@ export class World {
       list.forEach((c, i) => { this.setCoral(mesh, c, i, 0, dummy); }); mesh.instanceMatrix.needsUpdate = true; if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
       this.group.add(mesh); return mesh;
     });
-    // Kelp (dense in the kelp forest ring)
+    // Kelp (dense in the kelp forest)
     this.kelp = [];
-    const kelpPlan = E ? [[0, 0, RINGS[0], 6], [1, RINGS[0], RINGS[1], 8], [2, RINGS[1], RINGS[2], 60], [3, RINGS[2], S * .47, 6]] : [[this.cfg.biome, 0, S * .47, this.biome.kelp]];
-    for (const [, minR, maxR, cnt] of kelpPlan) for (let i = 0; i < cnt; i++) { const p = this.randomPoint(r, { minR, maxR, clearance: .4, maxTries: 20, shape: true }); const d = Math.hypot(p.x, p.z); if (d < 3) continue; this.kelp.push({ x: p.x, z: p.z, k: this.idx(p.x, p.z), d, rot: r() * 6.28, s: .7 + r() * .8, t: -1, hidden: d > this.reveal }); }
+    const kelpPlan = E ? [[0, 6], [1, 8], [2, 70], [3, 6]] : [[-1, this.biome.kelp]];
+    for (const [reg, cnt] of kelpPlan) for (let i = 0; i < cnt; i++) {
+      const p = E ? this.randomPoint(r, { region: reg, clearance: .4, maxTries: 20, shape: true }) : this.randomPoint(r, { maxR: S * .47, clearance: .4, maxTries: 20, shape: true });
+      if (Math.hypot(p.x, p.z) < 3) continue; const rg = this.regionAt(p.x, p.z);
+      this.kelp.push({ x: p.x, z: p.z, k: this.idx(p.x, p.z), reg: rg, rot: r() * 6.28, s: .7 + r() * .8, t: -1, hidden: !this.revealedIn(rg, p.x) });
+    }
     this.kelpMesh = new THREE.InstancedMesh(this.kelpGeo, this.kelpMat, Math.max(1, this.kelp.length)); this.kelpMesh.count = this.kelp.length;
     this.kelp.forEach((k, i) => this.setKelp(k, i, 0, dummy)); this.group.add(this.kelpMesh);
     // Rocks frame the seabed and fill the islands.
-    const rocks = [], maxRocks = E ? 260 : 140;
+    const rocks = [], maxRocks = E ? 340 : 140;
     for (let i = 0; i < maxRocks * 5 && rocks.length < maxRocks; i++) {
-      const a = r() * Math.PI * 2, d = r() * S * .75, x = Math.cos(a) * d, z = Math.sin(a) * d;
+      let x, z; if (E) { x = this.ox + r() * this.Sx; z = this.oz + r() * this.Sz; } else { const a = r() * Math.PI * 2, d = r() * S * .75; x = Math.cos(a) * d; z = Math.sin(a) * d; }
       if (this.isShape(x, z)) continue; let near = false; for (const o of [[1.2, 0], [-1.2, 0], [0, 1.2], [0, -1.2]]) if (this.isShape(x + o[0], z + o[1])) near = true;
       if (near || r() < .15) rocks.push({ x, z, s: .45 + r() * (near ? .9 : 1.6) });
     }
@@ -302,10 +335,12 @@ export class World {
     const u = this.floorMat.uniforms; u.uTime.value = t; u.uFever.value = fever; this.kelpMat.userData.time.value = t;
     const bloomed = [], dummy = this._d || (this._d = new THREE.Object3D()), touchedTypes = new Set(); let kelpTouched = false;
     if (this.reveal < this.revealTarget) {
-      this.reveal = Math.min(this.revealTarget, this.reveal + dt * 4.5); u.uReveal.value = this.reveal >= this.S * .55 ? 1e4 : this.reveal;
-      while (this.pendingAt < this.pending.length && this.dist[this.pending[this.pendingAt]] <= this.reveal) { this.valid[this.pending[this.pendingAt++]] = 1; this.validCount++; }
-      for (const c of this.corals) if (c.hidden && c.d <= this.reveal) { c.hidden = false; this.setCoral(this.coralMeshes[c.type], c, c.slot, 0, dummy); touchedTypes.add(c.type); }
-      this.kelp.forEach((k, i) => { if (k.hidden && k.d <= this.reveal) { k.hidden = false; this.setKelp(k, i, 0, dummy); kelpTouched = true; } });
+      this.reveal = Math.min(this.revealTarget, this.reveal + dt * 6); const doneSweep = this.reveal >= this.revealTarget;
+      while (this.pendingAt < this.pending.length && (doneSweep || this.cellX(this.pending[this.pendingAt]) <= this.reveal)) { this.valid[this.pending[this.pendingAt++]] = 1; this.validCount++; }
+      if (doneSweep) this.reveal = this.revealTarget = 1e4;
+      u.uReveal.value = this.reveal;
+      for (const c of this.corals) if (c.hidden && this.revealedIn(c.reg, c.x)) { c.hidden = false; this.setCoral(this.coralMeshes[c.type], c, c.slot, 0, dummy); touchedTypes.add(c.type); }
+      this.kelp.forEach((k, i) => { if (k.hidden && this.revealedIn(k.reg, k.x)) { k.hidden = false; this.setKelp(k, i, 0, dummy); kelpTouched = true; } });
     }
     if (this.dirty) { this.texture.needsUpdate = true; this.dirty = false; }
     if (celebrate) { this.tickBloomAll(dt); return bloomed; }

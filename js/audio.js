@@ -1,6 +1,17 @@
 // Fully procedural sound: no downloads, starts on the first touch.
 const SCALE = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24, 26, 28, 31, 33, 36];
-const CHORDS = [[48, 55, 59, 64], [45, 52, 57, 60], [41, 48, 52, 57], [43, 50, 55, 59]];
+// Sunny I–vi–IV–V loop (C, Am, F, G) under a bouncy island groove.
+const CHORDS = [[48, 52, 55, 60], [45, 48, 52, 57], [41, 45, 48, 53], [43, 47, 50, 55]];
+const PENTA = [0, 2, 4, 7, 9], STEP = .14; // 16th notes at ~107 BPM
+// A catchy 4-bar marimba tune (A B C A) built once from a fixed seed, so it is the same every time.
+const TUNE = (() => {
+  let s = 7; const r = () => (s = (s * 16807) % 2147483647) / 2147483647, bars = [];
+  for (let b = 0; b < 3; b++) { const ch = CHORDS[b], line = [];
+    for (let e = 0; e < 8; e++) { if (e % 2 && r() < .4) { line.push(null); continue; }
+      const tones = e % 2 ? PENTA.map(p => 72 + p) : ch.map(m => m + 24), m = tones[Math.floor(r() * tones.length)]; line.push(m > 86 ? m - 12 : m); }
+    bars.push(line); }
+  return [bars[0], bars[1], bars[2], bars[0]];
+})();
 const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
 
 export class Audio {
@@ -31,7 +42,7 @@ export class Audio {
 
   startAmbient() {
     const c = this.ctx, src = c.createBufferSource(); src.buffer = this.noiseBuf; src.loop = true;
-    const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 320; const g = c.createGain(); g.gain.value = .22;
+    const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 320; const g = c.createGain(); g.gain.value = .12;
     const lfo = c.createOscillator(), lg = c.createGain(); lfo.frequency.value = .07; lg.gain.value = 120; lfo.connect(lg).connect(f.frequency); lfo.start();
     src.connect(f).connect(g).connect(this.music); src.start();
   }
@@ -53,40 +64,52 @@ export class Audio {
     while (this.nextBar < t + .2) this.scheduleStep(this.nextBar);
   }
 
-  // Generative pad + arpeggio, intensifies with combo/fever.
+  // Playful groove: bass + marimba tune + shaker always; drums, offbeat chords and sparkles join with the combo.
   scheduleStep(at) {
-    const stepLen = .25, i = this.step16 % 16, chord = CHORDS[this.bar % 4];
-    if (i === 0) { for (const m of chord) this.pad(mtof(m), at, stepLen * 16); }
-    if (this.intensity > 0 && i % (this.intensity > 1 ? 2 : 4) === 0) {
-      const m = chord[(i / 2) % chord.length | 0] + 24; this.marimba(mtof(m), at, .09);
-    }
-    if (this.intensity > 2 && i % 2 === 1) this.tick(at);
-    if (this.intensity > 1 && i % 8 === 4) this.kick(at);
-    this.step16++; if (this.step16 % 16 === 0) this.bar++; this.nextBar += stepLen;
+    const i = this.step16 % 16, bar = this.bar % 4, chord = CHORDS[bar], lv = this.intensity;
+    if (i === 0) for (const m of chord) this.pad(mtof(m + 12), at, STEP * 16, .022);
+    if ([0, 6, 8, 14].includes(i)) this.bass(mtof(chord[0] - (i === 14 ? 5 : 0)), at, i === 0 ? .2 : .14);
+    if (i % 2 === 0) { const m = TUNE[bar][i / 2]; if (m !== null) this.marimba(mtof(m), at, .085); }
+    if (i % 4 === 2) this.tick(at, .022); else if (lv > 0 && i % 2 === 1) this.tick(at, .01);
+    if (lv > 0 && (i === 0 || i === 8)) this.kick(at);
+    if (lv > 0 && i % 4 === 2) for (const m of chord.slice(1)) this.marimba(mtof(m + 12), at, .022);
+    if (lv > 1 && (i === 4 || i === 12)) this.clap(at);
+    if (lv > 2) this.marimba(mtof(chord[i % 4] + 36), at, .03);
+    this.step16++; if (this.step16 % 16 === 0) this.bar++; this.nextBar += STEP;
   }
 
-  pad(f, at, len) {
+  bass(f, at, vol) {
+    const c = this.ctx, o = c.createOscillator(), g = c.createGain(), lp = c.createBiquadFilter(); o.type = 'triangle'; o.frequency.value = f; lp.type = 'lowpass'; lp.frequency.value = 700;
+    g.gain.setValueAtTime(vol, at); g.gain.exponentialRampToValueAtTime(.001, at + .32); o.connect(lp).connect(g).connect(this.music); o.start(at); o.stop(at + .35);
+  }
+  clap(at) {
+    const c = this.ctx, s = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain(); s.buffer = this.whiteBuf; f.type = 'bandpass'; f.frequency.value = 1500; f.Q.value = .8;
+    g.gain.setValueAtTime(.09, at); g.gain.exponentialRampToValueAtTime(.001, at + .14); s.connect(f).connect(g).connect(this.music); g.connect(this.echo); s.start(at, Math.random()); s.stop(at + .16);
+  }
+
+  pad(f, at, len, vol = .05) {
     const c = this.ctx, o = c.createOscillator(), o2 = c.createOscillator(), g = c.createGain(), lp = c.createBiquadFilter();
     o.type = 'triangle'; o2.type = 'sine'; o.frequency.value = f; o2.frequency.value = f * 1.004; lp.type = 'lowpass'; lp.frequency.value = 900;
-    g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(.05, at + 1.2); g.gain.setTargetAtTime(0, at + len - 1, .6);
+    g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(vol, at + .5); g.gain.setTargetAtTime(0, at + len - .4, .3);
     o.connect(lp); o2.connect(lp); lp.connect(g).connect(this.music); o.start(at); o2.start(at); o.stop(at + len + 2); o2.stop(at + len + 2);
   }
 
+  // Wooden mallet: sine body + a quick 4th-harmonic knock.
   marimba(f, at, vol) {
-    const c = this.ctx, o = c.createOscillator(), g = c.createGain(); o.type = 'sine'; o.frequency.value = f;
-    g.gain.setValueAtTime(vol, at); g.gain.exponentialRampToValueAtTime(.001, at + .35);
-    o.connect(g); g.connect(this.music); g.connect(this.echo); o.start(at); o.stop(at + .4);
+    const c = this.ctx, o = c.createOscillator(), o2 = c.createOscillator(), g = c.createGain(), g2 = c.createGain(); o.type = 'sine'; o.frequency.value = f; o2.type = 'sine'; o2.frequency.value = f * 4;
+    g.gain.setValueAtTime(vol, at); g.gain.exponentialRampToValueAtTime(.001, at + .42); g2.gain.setValueAtTime(vol * .45, at); g2.gain.exponentialRampToValueAtTime(.001, at + .05);
+    o.connect(g); o2.connect(g2); g2.connect(g); g.connect(this.music); g.connect(this.echo); o.start(at); o2.start(at); o.stop(at + .45); o2.stop(at + .08);
   }
 
-  tick(at) {
+  tick(at, vol = .05) {
     const c = this.ctx, s = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain(); s.buffer = this.whiteBuf;
-    f.type = 'highpass'; f.frequency.value = 7000; g.gain.setValueAtTime(.05, at); g.gain.exponentialRampToValueAtTime(.001, at + .05);
+    f.type = 'highpass'; f.frequency.value = 6500; g.gain.setValueAtTime(vol, at); g.gain.exponentialRampToValueAtTime(.001, at + .05);
     s.connect(f).connect(g).connect(this.music); s.start(at, Math.random()); s.stop(at + .06);
   }
 
   kick(at) {
     const c = this.ctx, o = c.createOscillator(), g = c.createGain(); o.frequency.setValueAtTime(110, at); o.frequency.exponentialRampToValueAtTime(40, at + .18);
-    g.gain.setValueAtTime(.35, at); g.gain.exponentialRampToValueAtTime(.001, at + .25); o.connect(g).connect(this.music); o.start(at); o.stop(at + .3);
+    g.gain.setValueAtTime(.22, at); g.gain.exponentialRampToValueAtTime(.001, at + .25); o.connect(g).connect(this.music); o.start(at); o.stop(at + .3);
   }
 
   tone(f, dur, { type = 'sine', vol = .2, slide = 0, delay = 0, echo = false } = {}) {

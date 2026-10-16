@@ -4,29 +4,29 @@ import { todayKey } from './util.js';
 const KEY = 'ocean-restorer-remake-v1';
 
 export const UPGRADES = [
-  { id: 'range', icon: '◎', name: 'Široká hubica', desc: 'Väčší dosah čistenia', base: 60, max: 10 },
-  { id: 'power', icon: 'ϟ', name: 'Sací výkon', desc: 'Rýchlejšie zmýva olej', base: 70, max: 10 },
-  { id: 'speed', icon: '➜', name: 'Turbo plutvy', desc: 'Rýchlejšie plávanie', base: 55, max: 10 },
-  { id: 'o2', icon: '◌', name: 'Väčšia fľaša', desc: '+6 s kyslíka', base: 65, max: 10 },
-  { id: 'pulse', icon: '✹', name: 'Sonar pulz', desc: 'Silnejší a častejší pulz', base: 80, max: 8 },
-  { id: 'magnet', icon: '⧉', name: 'Magnet', desc: 'Priťahuje odpad a mince z diaľky', base: 90, max: 6 },
+  { id: 'range', icon: '◎', name: 'Wide Nozzle', desc: 'Bigger cleaning reach', base: 60, max: 10 },
+  { id: 'power', icon: 'ϟ', name: 'Suction Power', desc: 'Washes off oil faster', base: 70, max: 10 },
+  { id: 'speed', icon: '➜', name: 'Turbo Fins', desc: 'Swim faster', base: 55, max: 10 },
+  { id: 'o2', icon: '◌', name: 'Bigger Tank', desc: '+6 s of oxygen', base: 65, max: 10 },
+  { id: 'pulse', icon: '✹', name: 'Sonar Pulse', desc: 'Stronger, more frequent pulse', base: 80, max: 8 },
+  { id: 'magnet', icon: '⧉', name: 'Magnet', desc: 'Pulls in trash and coins from afar', base: 90, max: 6 },
 ];
 
 export const SUITS = [
-  { id: 'classic', name: 'Klasik', color: 0xffb02e, accent: 0x14707e, req: { stars: 0 } },
-  { id: 'coral', name: 'Korál', color: 0xff5f8f, accent: 0x7a2e8c, req: { stars: 12 } },
-  { id: 'mint', name: 'Mäta', color: 0x3ee6b0, accent: 0x0b5560, req: { stars: 24 } },
-  { id: 'night', name: 'Hlbina', color: 0x3a4bff, accent: 0x9be7ff, req: { stars: 40 }, glow: true },
-  { id: 'gold', name: 'Zlatý', color: 0xffd447, accent: 0x7a4a00, req: { pearls: 25 }, glow: true },
-  { id: 'rainbow', name: 'Dúha', color: 0xffffff, accent: 0x222244, req: { stars: 75 }, rainbow: true },
+  { id: 'classic', name: 'Classic', color: 0xffb02e, accent: 0x14707e, req: { stars: 0 } },
+  { id: 'coral', name: 'Coral', color: 0xff5f8f, accent: 0x7a2e8c, req: { stars: 12 } },
+  { id: 'mint', name: 'Mint', color: 0x3ee6b0, accent: 0x0b5560, req: { stars: 24 } },
+  { id: 'night', name: 'Deep Sea', color: 0x3a4bff, accent: 0x9be7ff, req: { stars: 40 }, glow: true },
+  { id: 'gold', name: 'Golden', color: 0xffd447, accent: 0x7a4a00, req: { pearls: 25 }, glow: true },
+  { id: 'rainbow', name: 'Rainbow', color: 0xffffff, accent: 0x222244, req: { stars: 75 }, rainbow: true },
 ];
 
 export const ANIMALS = [
-  { id: 'turtle', name: 'Korytnačka Tobi', emoji: '🐢', clean: 1.0 },
-  { id: 'seal', name: 'Tuleň Bubo', emoji: '🦭', clean: 1.15 },
-  { id: 'octopus', name: 'Chobotnica Ola', emoji: '🐙', clean: 1.3 },
-  { id: 'dolphin', name: 'Delfín Delfi', emoji: '🐬', clean: 1.5 },
-  { id: 'whale', name: 'Veľrybka Mája', emoji: '🐋', clean: 1.8 },
+  { id: 'turtle', name: 'Tobi the Turtle', emoji: '🐢', clean: 1.0 },
+  { id: 'seal', name: 'Bubo the Seal', emoji: '🦭', clean: 1.15 },
+  { id: 'octopus', name: 'Ola the Octopus', emoji: '🐙', clean: 1.3 },
+  { id: 'dolphin', name: 'Delfi the Dolphin', emoji: '🐬', clean: 1.5 },
+  { id: 'whale', name: 'Maya the Whale', emoji: '🐋', clean: 1.8 },
 ];
 
 const fresh = () => ({

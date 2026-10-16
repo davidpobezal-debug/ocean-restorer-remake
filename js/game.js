@@ -4,18 +4,23 @@ import { rng, clamp, damp, angleLerp } from './util.js';
 import { mats, buildDiver, buildShark, fishGeometry, trashGeometries, TRASH, buildNet, buildAnimal, ANIMAL_SCALE, buildJelly, buildClam, buildO2 } from './models.js';
 import { save, SUITS, ANIMALS } from './save.js';
 import { audio } from './audio.js';
-import { BIOMES, RINGS } from './world.js';
+import { BIOMES } from './world.js';
+import { Builder } from './boxy.js';
 
 export const STAR_AT = [.6, .85, 1];
 const TIERS = [0, 14, 45, 100, 180]; // combo thresholds in m² cleaned without a pause
 const FEVER_TIME = 7;
 // Expedition upgrades: bought mid-dive from the always-visible dock, reset every run (fair score chase).
+// Two rows: cleaning (top) and defence/consumables (bottom). `use` items are one-shot and can be rebought.
 export const RUN_UP = [
-  { id: 'range', icon: '◎', name: 'Dosah', base: 40, max: 6 },
-  { id: 'power', icon: 'ϟ', name: 'Výkon', base: 45, max: 6 },
-  { id: 'speed', icon: '➜', name: 'Plutvy', base: 35, max: 6 },
-  { id: 'pulse', icon: '✹', name: 'Pulz', base: 50, max: 5 },
-  { id: 'o2', icon: '🫧', name: '+25 s', base: 30, max: 99 },
+  { id: 'range', icon: '◎', name: 'Reach', base: 40, max: 6 },
+  { id: 'power', icon: 'ϟ', name: 'Power', base: 45, max: 6 },
+  { id: 'speed', icon: '➜', name: 'Fins', base: 35, max: 6 },
+  { id: 'robot', icon: '🤖', name: 'Robot', base: 120, max: 3, grow: 1.9 },
+  { id: 'pulse', icon: '✹', name: 'Pulse', base: 50, max: 5 },
+  { id: 'shield', icon: '🛡️', name: 'Shield', base: 60, max: 99, grow: 1.6, use: true },
+  { id: 'lure', icon: '🎣', name: 'Lure', base: 45, max: 99, grow: 1.4, use: true },
+  { id: 'o2', icon: '🫧', name: '+25 s', base: 30, max: 99, grow: 1.45, use: true },
 ];
 const TRASH_KINDS = ['bottle', 'can', 'bag', 'bottle', 'can', 'bag', 'tire', 'barrel'];
 
@@ -31,14 +36,21 @@ export class Game {
     const ag = new THREE.ConeGeometry(.32, .7, 3); ag.rotateX(Math.PI / 2); this.arrow = new THREE.Mesh(ag, new THREE.MeshBasicMaterial({ color: 0xfff27a, transparent: true, opacity: .9, depthWrite: false })); this.arrow.visible = false; scene.add(this.arrow);
     this.beacon = new THREE.Sprite(mats.glowSprite.clone()); this.beacon.material.color.set(0xfff27a); this.beacon.visible = false; scene.add(this.beacon);
     this.trail = 0;
+    this.shieldMesh = new THREE.Mesh(new THREE.SphereGeometry(1.05, 16, 12), new THREE.MeshPhongMaterial({ color: 0x9fe8ff, emissive: 0x2a7fb0, transparent: true, opacity: .28, shininess: 120, depthWrite: false })); this.shieldMesh.visible = false; scene.add(this.shieldMesh);
   }
   on(t, f) { (this.listeners[t] ||= []).push(f); }
   emit(t, d = {}) { for (const f of this.listeners[t] || []) f(d); }
 
-  runCost(id) { const u = RUN_UP.find(x => x.id === id); return Math.round(u.base * Math.pow(id === 'o2' ? 1.45 : 1.6, this.runUp[id])); }
+  runCost(id) { const u = RUN_UP.find(x => x.id === id); return Math.round(u.base * Math.pow(u.grow || 1.6, this.runUp[id])); }
+  // A one-shot item that is still running can't be stacked.
+  runActive(id) { return id === 'shield' ? this.shield > 0 : id === 'lure' ? !!this.lure : false; }
   buyRun(id) {
-    const u = RUN_UP.find(x => x.id === id); if (!u || this.ended || this.runUp[id] >= u.max) return false; const c = this.runCost(id); if (this.coins < c) return false;
-    this.coins -= c; this.runUp[id]++; if (id === 'o2') { this.o2 = Math.min(this.maxO2 + 40, this.o2 + 25); this.fx.text(this.p.x, 1.6, this.p.z, '+25 s O₂', 'o2 big'); }
+    const u = RUN_UP.find(x => x.id === id); if (!u || this.ended || this.runUp[id] >= u.max || this.runActive(id)) return false; const c = this.runCost(id); if (this.coins < c) return false;
+    this.coins -= c; this.runUp[id]++; const p = this.p;
+    if (id === 'o2') { this.o2 = Math.min(this.maxO2 + 40, this.o2 + 25); this.fx.text(p.x, 1.6, p.z, '+25 s O₂', 'o2 big'); }
+    if (id === 'shield') { this.shield = 1; this.fx.text(p.x, 1.8, p.z, 'Shield up!', 'o2 big'); }
+    if (id === 'lure') this.dropLure();
+    if (id === 'robot') { if (!this.robot) this.makeRobot(); this.fx.text(p.x, 1.8, p.z, this.runUp.robot > 1 ? 'Robot upgraded!' : 'Robot online!', 'gold big'); }
     this.fx.sparkle(this.p.x, 1, this.p.z, 0xffe36e, 14, 3); this.fx.ring(this.p.x, this.p.z, 2.2, 0xffe36e, .45); this.emit('upgrade', { id }); return true;
   }
 
@@ -56,7 +68,7 @@ export class Game {
     this.diver = buildDiver(suit); this.diver.scale.setScalar(1.25); this.group.add(this.diver);
     const area = w.validCount * w.cell * w.cell;
     this.maxO2 = cfg.endless ? 80 : clamp(Math.round(18 + area / 5.2 * (1.1 + Math.min(.5, cfg.oil + cfg.crust))), 45, 160) + save.up.o2 * 6; this.o2 = this.maxO2;
-    this.runUp = { range: 0, power: 0, speed: 0, pulse: 0, o2: 0 }; this.nextTrash = 5; this.nextSpill = 38; this.spill = null; this.trickle = 0; this.coinAcc = 0; this.perfect = false; this.pendingFish = [];
+    this.runUp = Object.fromEntries(RUN_UP.map(u => [u.id, 0])); this.shield = 0; this.lure = null; this.robot = null; this.nextTrash = 5; this.nextSpill = 38; this.spill = null; this.trickle = 0; this.coinAcc = 0; this.perfect = false; this.pendingFish = [];
     this.animalQueue = ANIMALS.map(a => a.id).sort(() => r() - .5);
     Object.assign(this, { p: { x: 0, z: 0, vx: 0, vz: 0, yaw: Math.PI, lean: 0 }, hearts: 3, invuln: 0, charge: 1, score: 0, coins: 0, pearls: 0, combo: 0, comboT: 0, tier: 0, fever: 0, plinkStep: 0, plinkAcc: 0,
       time: 0, ended: false, sucking: false, starsGot: 0, milestone: 0, trashCombo: 0, trashT: 0, rescued: [], sharksScared: 0, trashCount: 0, nextO2: 9, lowWarned: false, guideT: 0, guideTarget: null, sweepT: 0, continued: false, freeCleanT: 0, paused: false, kills: 0, pctShown: 0 });
@@ -68,7 +80,9 @@ export class Game {
     }
     // Rescue: an animal trapped in a ghost net.
     if (cfg.animal) { const p = w.randomPoint(r, { minR: w.S * .22, clearance: 1.2, avoid }); this.makeCage(cfg.animal, p); avoid.push({ x: p.x, z: p.z, r: 2.5 }); }
-    if (save.buddy && save.animals[save.buddy]) this.addFollower(save.buddy, 0, 1.5, true);
+    // A random rescued friend joins every dive (choosing one will later be a rewarded-ad perk).
+    const owned = ANIMALS.filter(a => save.animals[a.id]); this.buddyId = owned.length ? owned[Math.floor(Math.random() * owned.length)].id : null;
+    if (this.buddyId) this.addFollower(this.buddyId, 0, 1.5, true);
     for (let i = 0; i < cfg.clams; i++) { const p = w.randomPoint(r, { minR: 4, avoid, clearance: .4 }); const m = buildClam(); m.position.set(p.x, -.4, p.z); m.visible = false; this.group.add(m); this.clams.push({ m, x: p.x, z: p.z, state: 'hidden', t: 0 }); avoid.push({ ...p, r: 1.5 }); }
     for (let i = 0; i < cfg.sharks; i++) this.spawnShark(i, 10 + i * 9);
     for (let i = 0; i < cfg.jellies; i++) { const p = w.randomPoint(r, { minR: 8, avoid }); const m = buildJelly(); m.position.set(p.x, 0, p.z); this.group.add(m); this.jellies.push({ m, x: p.x, z: p.z, ox: p.x, oz: p.z, ph: r() * 6, vx: 0, vz: 0 }); }
@@ -88,13 +102,13 @@ export class Game {
     this.cage = { id, g, a, net, ring, x: p.x, z: p.z, hold: 0, freed: false, t: 0 };
   }
 
-  // Expedition: a new ring opens – fill it with trash, pearls, a trapped animal and (deeper) jellyfish.
+  // Expedition: a new region opens – fill it with trash, pearls, a trapped animal and (deeper) jellyfish.
   populateRegion(n) {
-    const w = this.world, r = this.r, minR = RINGS[n - 1] + 1, maxR = n >= 3 ? w.S * .46 : RINGS[n] - .8, avoid = [...w.centerpieces];
-    for (let i = 0; i < 7 + n * 3; i++) { const p = w.randomPoint(r, { minR, maxR, shape: true, clearance: .4, avoid }); this.addTrash(TRASH_KINDS[Math.floor(r() * 8)], p.x, p.z); }
-    for (let i = 0; i < 2; i++) { const p = w.randomPoint(r, { minR, maxR, shape: true, clearance: .4, avoid }); const m = buildClam(); m.position.set(p.x, -.4, p.z); m.visible = false; this.group.add(m); this.clams.push({ m, x: p.x, z: p.z, state: 'hidden', t: 0 }); }
-    if (!this.cage && this.animalQueue.length) { const p = w.randomPoint(r, { minR, maxR, shape: true, clearance: 1.2, avoid }); this.makeCage(this.animalQueue.shift(), p); }
-    if (n >= 2) for (let i = 0; i < 2; i++) { const p = w.randomPoint(r, { minR, maxR, shape: true }); const m = buildJelly(); m.position.set(p.x, 0, p.z); this.group.add(m); this.jellies.push({ m, x: p.x, z: p.z, ox: p.x, oz: p.z, ph: r() * 6, vx: 0, vz: 0 }); }
+    const w = this.world, r = this.r, region = n, avoid = [...w.centerpieces];
+    for (let i = 0; i < 8 + n * 4; i++) { const p = w.randomPoint(r, { region, shape: true, clearance: .4, avoid }); this.addTrash(TRASH_KINDS[Math.floor(r() * 8)], p.x, p.z); }
+    for (let i = 0; i < 2; i++) { const p = w.randomPoint(r, { region, shape: true, clearance: .4, avoid }); const m = buildClam(); m.position.set(p.x, -.4, p.z); m.visible = false; this.group.add(m); this.clams.push({ m, x: p.x, z: p.z, state: 'hidden', t: 0 }); }
+    if (!this.cage && this.animalQueue.length) { const p = w.randomPoint(r, { region, shape: true, clearance: 1.2, avoid }); this.makeCage(this.animalQueue.shift(), p); }
+    if (n >= 2) for (let i = 0; i < 2; i++) { const p = w.randomPoint(r, { region, shape: true }); const m = buildJelly(); m.position.set(p.x, 0, p.z); this.group.add(m); this.jellies.push({ m, x: p.x, z: p.z, ox: p.x, oz: p.z, ph: r() * 6, vx: 0, vz: 0 }); }
   }
 
   updateEndless(dt) {
@@ -151,7 +165,7 @@ export class Game {
     for (let i = 0; i < 24; i++) { const a = i / 24 * 6.28; this.fx.debris(p.x + Math.cos(a) * s.pulseClean * .8, p.z + Math.sin(a) * s.pulseClean * .8, this.world.biomeAt(p.x, p.z).rim); }
     for (const sh of this.sharks) if (['patrol', 'stalk', 'windup', 'dash', 'tired'].includes(sh.state) && Math.hypot(sh.x - p.x, sh.z - p.z) < s.pulseR + 1) {
       sh.state = 'stunned'; sh.t = 0; sh.lane.visible = false; this.sharksScared++; this.score += 150; this.coins += 15; audio.stun();
-      this.fx.text(sh.x, 1.6, sh.z, 'Odplašený! +15◈', 'gold'); this.fx.sparkle(sh.x, 1, sh.z, 0xffe36e, 14);
+      this.fx.text(sh.x, 1.6, sh.z, 'Scared off! +15◈', 'gold'); this.fx.sparkle(sh.x, 1, sh.z, 0xffe36e, 14);
     }
     for (const j of this.jellies) { const dx = j.x - p.x, dz = j.z - p.z, d = Math.hypot(dx, dz); if (d < s.pulseR) { j.vx += dx / (d || 1) * 7; j.vz += dz / (d || 1) * 7; } }
     for (const t of this.trash) if (t.state === 'idle' && t.mesh.visible && Math.hypot(t.x - p.x, t.z - p.z) < s.pulseR) { t.state = 'fly'; t.vy = 3; }
@@ -212,7 +226,7 @@ export class Game {
     this.nextO2 -= dt; if (this.nextO2 <= 0) { this.nextO2 = 11; if (this.pickups.length < 2 && this.o2 < this.maxO2 * .8) this.spawnO2(this.o2 < this.maxO2 * .3); }
     this.invuln = Math.max(0, this.invuln - dt);
     // --- entities
-    this.updateTrash(dt, s, bx, bz); this.updateCage(dt); this.updateClams(dt); this.updatePickups(dt); this.updateSharks(dt); this.updateJellies(dt);
+    this.updateTrash(dt, s, bx, bz); this.updateRobot(dt); this.updateLure(dt); this.updateCage(dt); this.updateClams(dt); this.updatePickups(dt); this.updateSharks(dt); this.updateJellies(dt);
     if (this.ended) return;
     const E = this.cfg.endless; if (E) this.updateEndless(dt);
     // Finishing help: guide arrow to the nearest leftover dirt (or a leaking barrel), and sweep isolated pixels.
@@ -241,11 +255,40 @@ export class Game {
 
   damage(src, x, z) {
     if (this.invuln > 0 || this.ended) return;
+    if (this.shield > 0) { this.shield = 0; this.invuln = 1.2; audio.stun(); this.fx.ring(this.p.x, this.p.z, 2.4, 0x9fe8ff, .5); this.fx.sparkle(this.p.x, 1, this.p.z, 0x9fe8ff, 18, 3); this.fx.text(this.p.x, 1.8, this.p.z, 'Blocked!', 'o2 big'); this.emit('haptic', { ms: 40 }); return; }
     this.hearts--; this.invuln = 1.6; const p = this.p, dx = p.x - x, dz = p.z - z, d = Math.hypot(dx, dz) || 1; p.vx = dx / d * 9; p.vz = dz / d * 9;
     const lost = Math.min(this.coins, Math.ceil(this.coins * .1)); this.coins -= lost;
     audio.hit(); this.fx.shake(.7); this.emit('haptic', { ms: 120 }); this.emit('hit', { hearts: this.hearts, lost, src });
     this.fx.sparkle(p.x, 1, p.z, 0xff4560, 16, 3); this.combo = 0; this.tier = 0; this.fever = 0;
     if (this.hearts <= 0) this.end(!this.cfg.endless && this.starsGot >= 1 ? 'win' : 'hearts');
+  }
+
+  // Lure: a buzzing decoy left behind; sharks go for it instead of you until it pops.
+  dropLure() {
+    const p = this.p, b = new Builder(); b.box(0, 0, 0, .38, .38, .38, [.62, .55, .94]); b.gem(0, .4, 0, .17, .35, [.76, .79, 1]); b.ring(0, .03, 0, .75, .06, [.66, .68, .95], 20);
+    const m = new THREE.Mesh(b.geometry(), mats.flat); const x = p.x - Math.sin(p.yaw) * 1.2, z = p.z - Math.cos(p.yaw) * 1.2; m.position.set(x, .05, z); this.group.add(m);
+    this.lure = { m, x, z, t: 8 }; audio.bubble(); this.fx.text(x, 1.4, z, 'Lure!', 'gold big');
+  }
+  popLure() { const l = this.lure; if (!l) return; this.group.remove(l.m); this.fx.sparkle(l.x, .5, l.z, 0xb9a6ff, 16, 3); this.fx.ring(l.x, l.z, 1.6, 0xb9a6ff, .4); audio.pop(.8); this.lure = null; }
+  // Robot: a little drone that hunts the nearest dirt around you.
+  makeRobot() {
+    const b = new Builder(); b.box(0, 0, 0, .55, .32, .5, [.42, .89, .86]); b.box(0, .32, 0, .3, .12, .3, [.25, .62, .66]); b.gem(0, .44, 0, .1, .2, [1, .9, .45]); b.box(0, .08, .27, .3, .12, .04, [.1, .2, .26]);
+    for (const s of [-1, 1]) b.box(s * .14, .14, .3, .07, .07, .03, [1, 1, .85]);
+    const m = new THREE.Mesh(b.geometry(), mats.flat); const p = this.p; m.position.set(p.x + 1, .7, p.z + 1); this.group.add(m);
+    this.robot = { m, x: p.x + 1, z: p.z + 1, yaw: 0, target: null, think: 0 };
+  }
+  updateRobot(dt) {
+    const r = this.robot; if (!r) return; const p = this.p, lv = this.runUp.robot, w = this.world;
+    r.think -= dt; if (r.think <= 0) { r.think = .7; const t = w.nearestDirty(r.x, r.z, 7); r.target = t && Math.hypot(t.x - p.x, t.z - p.z) < 10 ? t : null; }
+    const goal = r.target || { x: p.x + Math.sin(p.yaw + 2.2) * 1.8, z: p.z + Math.cos(p.yaw + 2.2) * 1.8 }, dx = goal.x - r.x, dz = goal.z - r.z, d = Math.hypot(dx, dz), sp = (2.4 + lv * .5) * Math.min(1, d);
+    if (d > .05) { r.x += dx / d * sp * dt; r.z += dz / d * sp * dt; r.yaw = angleLerp(r.yaw, Math.atan2(dx, dz), 1 - Math.exp(-6 * dt)); }
+    const res = w.brush(r.x, r.z, .7 + lv * .15, (2.2 + lv * .9) * dt); this.onCleaned(res.done);
+    if (res.touched && Math.random() < .3) this.fx.debris(r.x, r.z, w.biomeAt(r.x, r.z).dirt);
+    r.m.position.set(r.x, .6 + Math.sin(this.time * 4) * .07, r.z); r.m.rotation.set(Math.sin(this.time * 9) * .05, r.yaw, 0);
+  }
+  updateLure(dt) {
+    const l = this.lure; if (!l) return; l.t -= dt; l.m.scale.setScalar(1 + Math.sin(this.time * 9) * .08); l.m.rotation.y += dt * 2;
+    if (Math.random() < dt * 4) this.fx.sparkle(l.x, .6, l.z, 0xb9a6ff, 1, 1, .3); if (l.t <= 0) this.popLure();
   }
 
   spawnO2(close) {
@@ -263,7 +306,7 @@ export class Game {
       const d = Math.hypot(t.x - bx, t.z - bz);
       if (t.state === 'fall') { m.position.y -= dt * 4; m.rotation.x += dt * 3; m.rotation.z += dt * 2; if (Math.random() < .3) this.fx.bubble(m.position.x, m.position.y, m.position.z, .15, .5); if (m.position.y <= .12) { m.position.y = .12; m.rotation.x = 0; m.rotation.z = 0; t.state = 'idle'; this.fx.sparkle(t.x, .2, t.z, t.spill ? 0x553366 : 0xd8f6ff, 6, 1.5, .3); if (t.spill) audio.hit(); } continue; }
       if (t.state === 'idle') {
-        m.visible = Math.hypot(t.x, t.z) <= this.world.reveal + .5;
+        m.visible = this.world.isRevealed(t.x, t.z);
         m.position.y = .12 + Math.sin(t.t * 1.5) * .03;
         if (m.visible && d < s.suck * (def.hold ? .8 : 1)) { if (def.hold) { t.hold += dt; m.position.x = t.x + Math.sin(t.t * 50) * .05 * t.hold; m.rotation.z = Math.sin(t.t * 40) * .1; if (t.hold >= def.hold) { t.state = 'fly'; t.vy = 2.5; } } else { t.state = 'fly'; t.vy = 2; } }
         else if (t.hold > 0) t.hold = Math.max(0, t.hold - dt * .4);
@@ -280,7 +323,7 @@ export class Game {
   collectTrash(t) {
     const def = TRASH[t.type], mult = this.tier + 1; this.trashCombo++; this.trashT = 2.5; this.trashCount++;
     const value = def.value; this.coins += value; this.score += value * 10 * mult;
-    if (t.spill) { this.score += 500 * mult; this.spill = null; this.fx.text(t.mesh.position.x, 1.8, t.mesh.position.z, 'Únik zastavený! +' + 500 * mult, 'gold big'); this.emit('spillStopped'); }
+    if (t.spill) { this.score += 500 * mult; this.spill = null; this.fx.text(t.mesh.position.x, 1.8, t.mesh.position.z, 'Leak stopped! +' + 500 * mult, 'gold big'); this.emit('spillStopped'); }
     audio.pop(1 + Math.min(1.5, this.trashCombo * .12)); this.emit('haptic', { ms: 10 });
     this.fx.sparkle(t.mesh.position.x, .5, t.mesh.position.z, 0xfff3a0, 10, 2.5);
     this.fx.text(t.mesh.position.x, .9, t.mesh.position.z, '+' + value + '◈', 'gold' + (def.hold ? ' big' : ''));
@@ -290,7 +333,7 @@ export class Game {
 
   updateCage(dt) {
     const c = this.cage; if (!c) return; const p = this.p; c.t += dt;
-    c.g.visible = Math.hypot(c.x, c.z) <= this.world.reveal + 1;
+    c.g.visible = this.world.isRevealed(c.x, c.z);
     if (!c.freed) {
       if (!c.g.visible) return;
       const d = Math.hypot(p.x - c.x, p.z - c.z); c.a.rotation.y = Math.sin(c.t * 2) * .4; c.a.position.y = .5 + Math.sin(c.t * 3) * .05; for (const an of c.a.userData.anim) an(c.t, .4);
@@ -318,7 +361,7 @@ export class Game {
       if (c.state === 'hidden') { if (this.world.cleanAt(c.x, c.z) >= .9) { c.state = 'rise'; c.m.visible = true; c.t = 0; audio.bloom(5); this.fx.sparkle(c.x, .3, c.z, 0xf4d7ff, 12); } continue; }
       c.t += dt; const lid = c.m.userData.lid;
       if (c.state === 'rise') { const k = Math.min(1, c.t / .5); c.m.position.y = -.4 + .4 * k; lid.rotation.x = -k * .9; c.m.userData.glow.visible = true; c.m.userData.glow.material.opacity = .5 + Math.sin(c.t * 5) * .3; c.m.userData.pearl.position.y = .16 + Math.sin(c.t * 3) * .03;
-        if (Math.hypot(this.p.x - c.x, this.p.z - c.z) < 1.2) { c.state = 'taken'; c.m.userData.pearl.visible = false; c.m.userData.glow.visible = false; this.pearls++; audio.star(2); this.fx.sparkle(c.x, .5, c.z, 0xf4d7ff, 18, 3); this.fx.text(c.x, 1.2, c.z, '+1 ✦ perla', 'pearl big'); this.emit('pearl'); } }
+        if (Math.hypot(this.p.x - c.x, this.p.z - c.z) < 1.2) { c.state = 'taken'; c.m.userData.pearl.visible = false; c.m.userData.glow.visible = false; this.pearls++; audio.star(2); this.fx.sparkle(c.x, .5, c.z, 0xf4d7ff, 18, 3); this.fx.text(c.x, 1.2, c.z, '+1 ✦ pearl', 'pearl big'); this.emit('pearl'); } }
       else if (c.state === 'taken') { lid.rotation.x = Math.min(0, lid.rotation.x + dt); }
     }
   }
@@ -334,21 +377,21 @@ export class Game {
   updateSharks(dt) {
     const p = this.p, S = this.world.S;
     for (const sh of this.sharks) {
-      sh.t += dt; const m = sh.m, ud = m.userData, dx = p.x - sh.x, dz = p.z - sh.z, d = Math.hypot(dx, dz);
+      sh.t += dt; const m = sh.m, ud = m.userData, lure = this.lure && Math.hypot(this.lure.x - sh.x, this.lure.z - sh.z) < 16 ? this.lure : null, T = lure || p, dx = T.x - sh.x, dz = T.z - sh.z, d = Math.hypot(dx, dz);
       let moveSpeed = 0, face = null; ud.alert.visible = false; ud.stars.visible = false; sh.lane.visible = false;
       if (sh.state === 'wait') { if (sh.t >= 0) { const a = this.r() * 6.28, E = this.cfg.endless; sh.x = E ? p.x + Math.cos(a) * 13 : Math.cos(a) * S * .52; sh.z = E ? p.z + Math.sin(a) * 13 : Math.sin(a) * S * .52; sh.state = 'patrol'; sh.t = 0; m.visible = true; audio.sharkWarn(); this.emit('shark', { x: sh.x, z: sh.z }); } else continue; }
-      if (sh.state === 'patrol') { sh.ang += dt * .25; const E = this.cfg.endless, R = E ? 7 : S * .3, tx = (E ? p.x : 0) + Math.cos(sh.ang) * R, tz = (E ? p.z : 0) + Math.sin(sh.ang) * R; face = Math.atan2(tx - sh.x, tz - sh.z); moveSpeed = sh.speed * .8; if (d < 8 && sh.t > 1.5 && this.invuln <= 0) { sh.state = 'stalk'; sh.t = 0; } }
+      if (sh.state === 'patrol') { sh.ang += dt * .25; const E = this.cfg.endless, R = E ? 7 : S * .3, tx = (E ? T.x : 0) + Math.cos(sh.ang) * R, tz = (E ? T.z : 0) + Math.sin(sh.ang) * R; face = Math.atan2(tx - sh.x, tz - sh.z); moveSpeed = sh.speed * .8; if (d < 8 && sh.t > 1.5 && (lure || this.invuln <= 0)) { sh.state = 'stalk'; sh.t = 0; } }
       else if (sh.state === 'stalk') { face = Math.atan2(dx, dz); moveSpeed = sh.speed; if (d < 5) { sh.state = 'windup'; sh.t = 0; sh.dir = { x: dx / d, z: dz / d }; sh.dashLen = Math.min(11, d + 4); audio.sharkWarn(); } if (sh.t > 9) { sh.state = 'patrol'; sh.t = 0; } }
       else if (sh.state === 'windup') { face = Math.atan2(sh.dir.x, sh.dir.z); ud.alert.visible = true; ud.alert.scale.setScalar(.8 + Math.sin(sh.t * 20) * .1); sh.lane.visible = true; sh.lane.position.set(sh.x, .06, sh.z); sh.lane.rotation.z = Math.atan2(sh.dir.x, sh.dir.z) + Math.PI; sh.lane.scale.set(1, sh.dashLen * Math.min(1, sh.t / .25), 1); sh.lane.material.opacity = .25 + Math.sin(sh.t * 18) * .15; m.position.x = sh.x + Math.sin(sh.t * 60) * .05;
         if (sh.t >= sh.windup) { sh.state = 'dash'; sh.t = 0; audio.whoosh(); } }
       else if (sh.state === 'dash') { face = Math.atan2(sh.dir.x, sh.dir.z); sh.x += sh.dir.x * 13 * dt; sh.z += sh.dir.z * 13 * dt; if (Math.random() < .6) this.fx.bubble(sh.x, .5, sh.z, .3, .5);
-        if (d < 1.1) { this.damage('shark', sh.x, sh.z); sh.state = 'tired'; sh.t = 0; } else if (sh.t > sh.dashLen / 13) { sh.state = 'tired'; sh.t = 0; } }
+        if (d < 1.1) { if (lure) this.popLure(); else this.damage('shark', sh.x, sh.z); sh.state = 'tired'; sh.t = 0; } else if (sh.t > sh.dashLen / 13) { sh.state = 'tired'; sh.t = 0; } }
       else if (sh.state === 'tired') { moveSpeed = .6; face = sh.yaw; if (sh.t > 1.5) { sh.state = d < 8 ? 'stalk' : 'patrol'; sh.t = 0; } }
       else if (sh.state === 'stunned') { ud.stars.visible = true; sh.roll = Math.min(Math.PI, sh.roll + dt * 8); if (sh.t > 1.6) { sh.state = 'flee'; sh.t = 0; } }
       else if (sh.state === 'flee') { sh.roll = Math.max(0, sh.roll - dt * 4); face = Math.atan2(-dx, -dz); moveSpeed = 6; if (this.cfg.endless ? d > 17 : Math.hypot(sh.x, sh.z) > S * .62) { sh.state = 'wait'; sh.t = -12; m.visible = false; } }
       if (face !== null) sh.yaw = angleLerp(sh.yaw, face, 1 - Math.exp(-5 * dt));
       if (moveSpeed) { sh.x += Math.sin(sh.yaw) * moveSpeed * dt; sh.z += Math.cos(sh.yaw) * moveSpeed * dt; }
-      sh.x = clamp(sh.x, -S * .65, S * .65); sh.z = clamp(sh.z, -S * .65, S * .65);
+      if (this.cfg.endless) { const b = this.world.bounds(); sh.x = clamp(sh.x, b.x0 - 4, b.x1 + 4); sh.z = clamp(sh.z, b.z0 - 4, b.z1 + 4); } else { sh.x = clamp(sh.x, -S * .65, S * .65); sh.z = clamp(sh.z, -S * .65, S * .65); }
       if (sh.state !== 'windup') m.position.x = sh.x; m.position.z = sh.z; m.position.y = .55 + Math.sin(sh.t * 2) * .06; m.rotation.set(0, sh.yaw, sh.roll, 'YXZ');
       ud.tail.rotation.y = Math.sin(this.time * (sh.state === 'dash' ? 22 : 8)) * .45; ud.shadow.position.y = -.53;
     }
@@ -373,6 +416,7 @@ export class Game {
     ud.nozzle.rotation.y = this.sucking ? Math.sin(t * 7) * .2 : 0; ud.nozzle.position.y = .22 + Math.sin(t * 3) * .03;
     ud.shadow.position.y = -d.position.y + .03;
     d.visible = this.invuln <= 0 || Math.floor(t * 14) % 2 === 0;
+    this.shieldMesh.visible = this.shield > 0 && !this.ended; if (this.shieldMesh.visible) { this.shieldMesh.position.set(p.x, .8, p.z); this.shieldMesh.scale.setScalar(1 + Math.sin(t * 4) * .04); }
     if (ud.rainbow) ud.bodyMesh.material.emissive?.setHSL((t * .3) % 1, 1, .3);
     if (Math.random() < dt * 2.5) this.fx.bubble(p.x - Math.sin(p.yaw) * .3, 1.4, p.z - Math.cos(p.yaw) * .3, .18);
     // Pulse-ready ring

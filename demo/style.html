@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Style Compare</title>
+<style>
+  :root { color-scheme: dark; font-family: system-ui, -apple-system, sans-serif; }
+  html, body { margin: 0; height: 100%; background: #062b3b; color: #e9fcf6; overflow: hidden; }
+  #wrap { display: flex; height: 100%; }
+  .pane { position: relative; flex: 1; min-width: 0; border-right: 2px solid #0b4152; }
+  .pane:last-child { border: 0; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #b canvas { image-rendering: pixelated; }
+  .tag { position: absolute; left: 12px; top: 12px; right: 12px; z-index: 2; background: rgba(4, 30, 45, .82); border: 1px solid #1d6f78; border-radius: 12px; padding: 8px 12px; }
+  .tag b { font-size: 18px; color: #6ff2df; } .tag small { display: block; opacity: .8; margin-top: 2px; }
+  .px { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .px button { background: #0e4250; color: #e9fcf6; border: 1px solid #2a8a90; border-radius: 8px; padding: 4px 9px; font: inherit; font-size: 13px; }
+  .px button.on { background: #ffd23f; color: #3a2a00; border-color: #ffd23f; font-weight: 700; }
+  @media (max-aspect-ratio: 1/1) { #wrap { flex-direction: column; } .pane { border-right: 0; border-bottom: 2px solid #0b4152; } }
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"}}</script>
+</head>
+<body>
+<div id="wrap">
+  <div class="pane" id="a"><div class="tag"><b>A · Low-poly</b><small>current remake models, smooth edges</small></div></div>
+  <div class="pane" id="b"><div class="tag"><b>B · Boxy + crisp</b><small>original-style blocks, no edge smoothing</small><div class="px" id="px"><button data-s="1">crisp</button><button data-s=".6" class="on">light pixel</button><button data-s=".4">strong pixel</button></div></div></div>
+</div>
+<script type="module" src="style.js"></script>
+</body>
+</html>

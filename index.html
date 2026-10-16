@@ -1,14 +1,14 @@
 <!doctype html>
-<html lang="sk">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<title>Ocean Restorer – vyčisti oceán jedným palcom</title>
-<meta name="description" content="Zmy špinu z morského dna, zachráň zvieratká zo sietí a nechaj útes rozkvitnúť. Hra na jeden palec, priamo v prehliadači.">
+<title>Ocean Restorer – clean the ocean with one thumb</title>
+<meta name="description" content="Wash the grime off the seabed, free animals from ghost nets and watch the reef bloom. A one-thumb game, right in your browser.">
 <meta name="theme-color" content="#06374d">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Ocean Restorer 🌊 Prekonáš moje skóre?">
-<meta property="og:description" content="Zmy špinu z morského dna, zachráň korytnačku zo siete a nechaj útes rozkvitnúť. Hraj zadarmo v prehliadači.">
+<meta property="og:title" content="Ocean Restorer 🌊 Can you beat my score?">
+<meta property="og:description" content="Wash the seabed clean, save a turtle from a ghost net and make the reef bloom. Play free in your browser.">
 <meta property="og:image" content="https://davidpobezal-debug.github.io/ocean-restorer-remake/assets/og.jpg">
 <meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
@@ -18,20 +18,20 @@
 <link rel="icon" href="assets/icon-192.png"><link rel="apple-touch-icon" href="assets/icon-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=2">
+<link rel="stylesheet" href="style.css?v=3">
 <script async src="https://cdn.jsdelivr.net/npm/es-module-shims@1.10.0/dist/es-module-shims.js"></script>
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"}}</script>
 </head>
 <body>
 <div id="app">
-  <canvas id="c" aria-label="Morské dno"></canvas>
+  <canvas id="c" aria-label="Seabed"></canvas>
   <div id="vignette"></div>
   <div id="fx" aria-hidden="true"></div>
   <div id="joy"><div id="knob"></div></div>
 
   <div id="hud" hidden>
     <div class="hud-top">
-      <button id="pauseBtn" class="round" aria-label="Pauza">❚❚</button>
+      <button id="pauseBtn" class="round" aria-label="Pause">❚❚</button>
       <div class="pct">
         <div class="pctbar"><i id="pctFill"></i><span class="pstar" style="left:60%">★</span><span class="pstar" style="left:85%">★</span><span class="pstar" style="left:99%">★</span></div>
         <b id="pctText">0 %</b>
@@ -43,6 +43,7 @@
       <div id="hearts"></div>
     </div>
     <div id="combo"><b id="comboMult">×1</b><div class="combobar"><i id="comboFill"></i></div><small id="scoreText">0</small></div>
+    <canvas id="minimap" width="48" height="48" aria-hidden="true"></canvas>
     <div id="banner"></div>
     <div id="hint"></div>
     <div id="dock" hidden></div>
@@ -52,54 +53,54 @@
 
   <section id="home" class="screen" hidden>
     <div class="home-top"><div id="streak" class="chip"></div><div class="chip coins"><span class="coin"></span><b id="homeCoins">0</b></div><div class="chip pearl">✦ <b id="homePearls">0</b></div></div>
-    <div class="logo"><span>OCEAN</span><b>RESTORER</b><small>vyčisti oceán jedným palcom</small></div>
+    <div class="logo"><span>OCEAN</span><b>RESTORER</b><small>clean the ocean with one thumb</small></div>
     <div id="challengeCard" hidden></div>
     <div class="home-main">
       <div id="bestLine" class="bestline"></div>
-      <button id="playBtn" class="big primary">▶ HRAŤ <small>Expedícia</small></button>
+      <button id="playBtn" class="big primary">▶ PLAY <small>Expedition</small></button>
       <div class="row">
-        <button id="levelsBtn" class="mid">⭐ Levely <small id="levelsInfo"></small></button>
-        <button id="dailyBtn" class="mid">📅 Denná výzva <i id="dailyBadge">NOVÉ</i></button>
+        <button id="levelsBtn" class="mid">⭐ Levels <small id="levelsInfo"></small></button>
+        <button id="dailyBtn" class="mid">📅 Daily Dive <i id="dailyBadge">NEW</i></button>
       </div>
-      <button id="inviteBtn" class="mid">🎯 Vyzvi kamaráta</button>
+      <button id="inviteBtn" class="mid">🎯 Challenge a friend</button>
     </div>
     <nav class="home-nav">
-      <button data-open="shop">🛠️<span>Výbava</span><i id="shopBadge" hidden></i></button>
-      <button data-open="friends">🐢<span>Kamaráti</span></button>
-      <button data-open="suits">🤿<span>Obleky</span></button>
-      <button data-open="settings">⚙️<span>Nastavenia</span></button>
+      <button data-open="shop">🛠️<span>Gear</span><i id="shopBadge" hidden></i></button>
+      <button data-open="friends">🐢<span>Friends</span></button>
+      <button data-open="suits">🤿<span>Suits</span></button>
+      <button data-open="settings">⚙️<span>Settings</span></button>
     </nav>
     <p id="totals" class="totals"></p>
   </section>
 
-  <section id="panel" class="screen dim" hidden><div class="sheet"><div class="sheet-head"><h2 id="panelTitle"></h2><button class="round close" id="panelClose" aria-label="Zavrieť">✕</button></div><div id="panelBody"></div></div></section>
+  <section id="panel" class="screen dim" hidden><div class="sheet"><div class="sheet-head"><h2 id="panelTitle"></h2><button class="round close" id="panelClose" aria-label="Close">✕</button></div><div id="panelBody"></div></div></section>
 
   <section id="end" class="screen dim" hidden><div class="sheet end">
     <small id="endEyebrow"></small><h1 id="endTitle"></h1>
     <div id="endStars" class="stars"><span>★</span><span>★</span><span>★</span></div>
-    <div class="endpct"><b id="endPct">0 %</b><small id="endPctLabel">útesu obnovené</small></div>
+    <div class="endpct"><b id="endPct">0 %</b><small id="endPctLabel">of the reef restored</small></div>
     <div id="endVs" hidden></div>
     <div class="endgrid">
-      <div><small id="endL1">SKÓRE</small><b id="endScore">0</b><i id="endRecord" hidden>NOVÝ REKORD</i></div>
-      <div><small id="endL2">ZÍSKAL SI</small><b id="endCoins">0</b></div>
+      <div><small id="endL1">SCORE</small><b id="endScore">0</b><i id="endRecord" hidden>NEW RECORD</i></div>
+      <div><small id="endL2">YOU EARNED</small><b id="endCoins">0</b></div>
     </div>
     <p id="endNear"></p>
     <div id="endRescue" hidden></div>
-    <div id="endShots"><canvas id="shotBefore"></canvas><canvas id="shotAfter"></canvas><span>PRED</span><span>PO</span></div>
+    <div id="endShots"><canvas id="shotBefore"></canvas><canvas id="shotAfter"></canvas><span>BEFORE</span><span>AFTER</span></div>
     <div class="endbtns" id="endBtns"></div>
   </div></section>
 
   <section id="pause" class="screen dim" hidden><div class="sheet small">
-    <h2>Pauza</h2>
-    <button class="big primary" id="resumeBtn">▶ Pokračovať</button>
-    <div class="row"><button class="mid" id="restartBtn">↻ Znova</button><button class="mid" id="homeBtn">⌂ Domov</button></div>
-    <div class="row"><button class="mid toggle" id="pSound">🔊 Zvuk</button><button class="mid toggle" id="pMusic">🎵 Hudba</button></div>
+    <h2>Paused</h2>
+    <button class="big primary" id="resumeBtn">▶ Resume</button>
+    <div class="row"><button class="mid" id="restartBtn">↻ Restart</button><button class="mid" id="homeBtn">⌂ Home</button></div>
+    <div class="row"><button class="mid toggle" id="pSound">🔊 Sound</button><button class="mid toggle" id="pMusic">🎵 Music</button></div>
   </div></section>
 
   <div id="toast"></div>
-  <div id="loading"><div class="spinner"></div><b>Ponáram sa…</b></div>
-  <noscript>Ocean Restorer potrebuje JavaScript.</noscript>
+  <div id="loading"><div class="spinner"></div><b>Diving in…</b></div>
+  <noscript>Ocean Restorer needs JavaScript.</noscript>
 </div>
-<script type="module" src="js/main.js?v=2"></script>
+<script type="module" src="js/main.js?v=3"></script>
 </body>
 </html>

@@ -50,6 +50,8 @@ button { font: inherit; color: inherit; border: 0; cursor: pointer; touch-action
 #hearts { background: var(--card); border: 2px solid var(--line); border-radius: 18px; height: 36px; padding: 0 10px; display: flex; align-items: center; gap: 2px; font-size: 17px; }
 #hearts .gone { filter: grayscale(1); opacity: .3; }
 #hearts.hit { animation: bump .3s; }
+#minimap { position: absolute; top: calc(var(--sat) + 108px); right: calc(var(--sar) + 12px); width: 84px; height: 84px; border-radius: 50%; border: 2px solid var(--line); background: rgba(3, 22, 32, .55); image-rendering: pixelated; display: none; }
+#hud.endless #minimap { display: block; }
 #combo { position: absolute; top: calc(var(--sat) + 108px); left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; opacity: .0; transition: opacity .2s; }
 #combo.on { opacity: 1; }
 #combo b { font-size: 34px; line-height: 1; color: var(--gold); text-shadow: 0 3px 0 #9a5b00, 0 0 18px rgba(255, 200, 60, .6); }
@@ -171,19 +173,21 @@ button { font: inherit; color: inherit; border: 0; cursor: pointer; touch-action
 @media (min-width: 900px) { .hud-top, .hud-row { max-width: 640px; left: 50%; transform: translateX(-50%); width: calc(100% - 20px); } }
 
 /* Expedition: always-visible upgrade dock + score-first HUD */
-#dock { position: absolute; left: calc(var(--sal) + 8px); right: calc(var(--sar) + 8px); bottom: calc(var(--sab) + 8px); display: flex; gap: 6px; pointer-events: none; }
+#dock { position: absolute; left: calc(var(--sal) + 8px); right: calc(var(--sar) + 8px); bottom: calc(var(--sab) + 8px); display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; pointer-events: none; }
 #dock button { pointer-events: auto; flex: 1; min-width: 0; background: var(--card); border: 2px solid var(--line); border-radius: 16px; padding: 4px 2px 5px; display: flex; flex-direction: column; align-items: center; line-height: 1.05; opacity: .55; transition: transform .12s, opacity .2s, border-color .2s; }
 #dock button .di { font-size: 20px; } #dock button .dn { font-size: 11px; font-weight: 800; } #dock button .dc { font-size: 12px; font-weight: 800; color: var(--gold); display: flex; align-items: center; gap: 2px; }
 #dock button .dc .coin { width: 11px; height: 11px; }
 #dock button .dp { display: flex; gap: 2px; margin-top: 2px; } #dock button .dp i { width: 5px; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, .2); } #dock button .dp i.on { background: var(--mint); }
 #dock button.can { opacity: 1; border-color: var(--gold); box-shadow: 0 0 14px rgba(255, 216, 74, .45); animation: breathe 1.3s ease-in-out infinite; }
 #dock button.max { opacity: .35; }
+#dock button.on { opacity: 1; border-color: #9fe8ff; box-shadow: 0 0 12px rgba(159, 232, 255, .5); } #dock button.on .dc { color: #9fe8ff; }
+#dock button { padding: 3px 2px 4px; } #dock button .di { font-size: 17px; }
 #dock button:active { transform: scale(.92); }
 #hud.endless .pstar { display: none; }
 #hud.endless #combo { opacity: 1; }
 #hud.endless #combo small { font-size: 24px; font-weight: 800; opacity: 1; text-shadow: 0 2px 0 rgba(0, 0, 0, .4); order: -1; margin: 0 0 2px; }
 #hud.endless #combo:not(.on) b, #hud.endless #combo:not(.on) .combobar { visibility: hidden; }
-#hud.endless #hint { bottom: calc(var(--sab) + 92px); }
+#hud.endless #hint { bottom: calc(var(--sab) + 140px); }
 .bestline { text-align: center; font-weight: 800; font-size: 18px; color: var(--gold); text-shadow: 0 2px 0 rgba(0, 0, 0, .35); min-height: 1em; }
 #levelsBtn small { display: block; font-size: 12px; opacity: .8; }
 .lvgrid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin: 6px 0 14px; }

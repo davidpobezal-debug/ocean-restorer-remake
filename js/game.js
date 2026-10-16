@@ -1,11 +1,11 @@
 // Gameplay simulation: diver, cleaning, combo/fever, trash, rescues, sharks, jellyfish, pickups.
 import * as THREE from 'three';
 import { rng, clamp, damp, angleLerp } from './util.js';
-import { mats, buildDiver, buildShark, fishGeometry, trashGeometries, TRASH, buildNet, buildAnimal, ANIMAL_SCALE, buildJelly, buildClam, buildO2 } from './models.js';
+import { mats, buildNet } from './models.js';
 import { save, SUITS, ANIMALS } from './save.js';
 import { audio } from './audio.js';
 import { BIOMES } from './world.js';
-import { Builder } from './boxy.js';
+import { Builder, materials, diverRig, sharkRig, smallFishGeometry, trashGeometries, TRASH, animal as buildAnimal, ANIMAL_SCALE, jelly as buildJelly, clam as buildClam, oxygen as buildO2, robot as buildRobot, chest as buildChest } from './boxy.js';
 
 export const STAR_AT = [.6, .85, 1];
 const TIERS = [0, 14, 45, 100, 180]; // combo thresholds in m² cleaned without a pause
@@ -22,13 +22,14 @@ export const RUN_UP = [
   { id: 'lure', icon: '🎣', name: 'Lure', base: 45, max: 99, grow: 1.4, use: true },
   { id: 'o2', icon: '🫧', name: '+25 s', base: 30, max: 99, grow: 1.45, use: true },
 ];
-const TRASH_KINDS = ['bottle', 'can', 'bag', 'bottle', 'can', 'bag', 'tire', 'barrel'];
+const TRASH_KINDS = ['bottle', 'can', 'bag', 'boot', 'bottle', 'can', 'bag', 'crate', 'tire', 'barrel'];
+const CHEST_COINS = 55;
 
 export class Game {
   constructor(scene, world, fx) {
     this.scene = scene; this.world = world; this.fx = fx; this.listeners = {};
     this.trashGeo = trashGeometries();
-    this.fishMesh = new THREE.InstancedMesh(fishGeometry(), mats.flat, 90); this.fishMesh.count = 0; this.fishMesh.frustumCulled = false; scene.add(this.fishMesh);
+    this.fishMesh = new THREE.InstancedMesh(smallFishGeometry(), materials().solid, 90); this.fishMesh.count = 0; this.fishMesh.frustumCulled = false; scene.add(this.fishMesh);
     this.lanes = []; this.tmp = new THREE.Object3D(); this.col = new THREE.Color();
     this.group = new THREE.Group(); scene.add(this.group);
     // Pulse-charge ring and finishing guide arrow live with the diver.
@@ -65,7 +66,7 @@ export class Game {
   start(cfg) {
     this.clear(); this.cfg = cfg; const w = this.world; w.build(cfg); const r = this.r = rng(cfg.seed + 99);
     const suit = SUITS.find(s => s.id === save.suit) || SUITS[0];
-    this.diver = buildDiver(suit); this.diver.scale.setScalar(1.25); this.group.add(this.diver);
+    this.diver = diverRig(suit); this.diver.scale.setScalar(1.1); this.group.add(this.diver);
     const area = w.validCount * w.cell * w.cell;
     this.maxO2 = cfg.endless ? 80 : clamp(Math.round(18 + area / 5.2 * (1.1 + Math.min(.5, cfg.oil + cfg.crust))), 45, 160) + save.up.o2 * 6; this.o2 = this.maxO2;
     this.runUp = Object.fromEntries(RUN_UP.map(u => [u.id, 0])); this.shield = 0; this.lure = null; this.robot = null; this.nextTrash = 5; this.nextSpill = 38; this.spill = null; this.trickle = 0; this.coinAcc = 0; this.perfect = false; this.pendingFish = [];
@@ -75,7 +76,7 @@ export class Game {
     const avoid = [{ x: 0, z: 0, r: 3.5 }, w.centerpiece];
     // Trash on the dirty seabed.
     for (let i = 0; i < cfg.trash; i++) {
-      const type = cfg.n > 0 && cfg.n < 3 && i % 4 === 3 ? 'tire' : TRASH_KINDS[Math.min(7, Math.floor(r() * (cfg.n > 0 && cfg.n < 3 ? 6 : cfg.endless ? 7 : 8)))];
+      const type = cfg.n > 0 && cfg.n < 3 && i % 4 === 3 ? 'tire' : TRASH_KINDS[Math.min(9, Math.floor(r() * (cfg.n > 0 && cfg.n < 3 ? 8 : cfg.endless ? 9 : 10)))];
       const p = w.randomPoint(r, { avoid, clearance: .4 }); this.addTrash(type, p.x, p.z); avoid.push({ x: p.x, z: p.z, r: 1 });
     }
     // Rescue: an animal trapped in a ghost net.
@@ -87,16 +88,18 @@ export class Game {
     for (let i = 0; i < cfg.sharks; i++) this.spawnShark(i, 10 + i * 9);
     for (let i = 0; i < cfg.jellies; i++) { const p = w.randomPoint(r, { minR: 8, avoid }); const m = buildJelly(); m.position.set(p.x, 0, p.z); this.group.add(m); this.jellies.push({ m, x: p.x, z: p.z, ox: p.x, oz: p.z, ph: r() * 6, vx: 0, vz: 0 }); }
     for (let i = 0; i < 3; i++) this.addFish(0, 0, true);
+    // Treasure chest (from the original): sits out on the dirty seabed, worth a detour.
+    { const p = cfg.endless ? w.randomPoint(r, { region: 0, shape: true, clearance: .8, avoid: [...avoid, { x: 0, z: 0, r: 5 }] }) : w.randomPoint(r, { minR: w.S * .25, clearance: .8, avoid }); this.addChest(p.x, p.z); }
     this.emit('start', { maxO2: this.maxO2 });
   }
 
   addTrash(type, x, z, fall = false) {
-    const mesh = new THREE.Mesh(this.trashGeo[type], mats.flat); mesh.position.set(x, fall ? 7 : .12, z); mesh.rotation.y = Math.random() * 6; mesh.scale.setScalar(1.5); this.group.add(mesh);
+    const mesh = new THREE.Mesh(this.trashGeo[type], materials().solid); mesh.position.set(x, fall ? 7 : 0, z); mesh.rotation.y = Math.random() * 6; mesh.scale.setScalar(1.5); this.group.add(mesh);
     const t = { type, mesh, x, z, state: fall ? 'fall' : 'idle', hold: 0, t: Math.random() * 6, vx: 0, vy: 0, vz: 0 }; this.trash.push(t); return t;
   }
 
   makeCage(id, p) {
-    const g = new THREE.Group(); const a = buildAnimal(id); a.scale.setScalar(ANIMAL_SCALE[id]); a.position.y = .5; g.add(a);
+    const g = new THREE.Group(); const a = buildAnimal(id); a.scale.setScalar(ANIMAL_SCALE[id]); a.position.y = .5; a.userData.shadow.position.y = -.5 / ANIMAL_SCALE[id] + .03; g.add(a);
     const net = buildNet(); g.add(net); g.position.set(p.x, 0, p.z); this.group.add(g);
     const ring = new THREE.Mesh(new THREE.RingGeometry(1.25, 1.45, 40, 1, 0, .001), new THREE.MeshBasicMaterial({ color: 0xffe36e, transparent: true, opacity: .9, depthWrite: false, side: THREE.DoubleSide })); ring.rotation.x = -Math.PI / 2; ring.position.y = .06; g.add(ring);
     this.cage = { id, g, a, net, ring, x: p.x, z: p.z, hold: 0, freed: false, t: 0 };
@@ -105,7 +108,8 @@ export class Game {
   // Expedition: a new region opens – fill it with trash, pearls, a trapped animal and (deeper) jellyfish.
   populateRegion(n) {
     const w = this.world, r = this.r, region = n, avoid = [...w.centerpieces];
-    for (let i = 0; i < 8 + n * 4; i++) { const p = w.randomPoint(r, { region, shape: true, clearance: .4, avoid }); this.addTrash(TRASH_KINDS[Math.floor(r() * 8)], p.x, p.z); }
+    for (let i = 0; i < 8 + n * 4; i++) { const p = w.randomPoint(r, { region, shape: true, clearance: .4, avoid }); this.addTrash(TRASH_KINDS[Math.floor(r() * 10)], p.x, p.z); }
+    { const p = w.randomPoint(r, { region, shape: true, clearance: .8, avoid }); this.addChest(p.x, p.z); }
     for (let i = 0; i < 2; i++) { const p = w.randomPoint(r, { region, shape: true, clearance: .4, avoid }); const m = buildClam(); m.position.set(p.x, -.4, p.z); m.visible = false; this.group.add(m); this.clams.push({ m, x: p.x, z: p.z, state: 'hidden', t: 0 }); }
     if (!this.cage && this.animalQueue.length) { const p = w.randomPoint(r, { region, shape: true, clearance: 1.2, avoid }); this.makeCage(this.animalQueue.shift(), p); }
     if (n >= 2) for (let i = 0; i < 2; i++) { const p = w.randomPoint(r, { region, shape: true }); const m = buildJelly(); m.position.set(p.x, 0, p.z); this.group.add(m); this.jellies.push({ m, x: p.x, z: p.z, ox: p.x, oz: p.z, ph: r() * 6, vx: 0, vz: 0 }); }
@@ -121,7 +125,7 @@ export class Game {
     }
     // Trash keeps sinking from the surface…
     this.nextTrash -= dt;
-    if (this.nextTrash <= 0) { this.nextTrash = Math.max(2.4, 6 - this.time / 70); if (this.trash.length < 30) { const q = w.pointNear(p.x, p.z, 4, 12); if (q) this.addTrash(TRASH_KINDS[Math.floor(Math.random() * 7)], q.x, q.z, true); } }
+    if (this.nextTrash <= 0) { this.nextTrash = Math.max(2.4, 6 - this.time / 70); if (this.trash.length < 30) { const q = w.pointNear(p.x, p.z, 4, 12); if (q) this.addTrash(TRASH_KINDS[Math.floor(Math.random() * 9)], q.x, q.z, true); } }
     // …and leaking barrels re-pollute the reef until you vacuum them up.
     this.nextSpill -= dt;
     if (this.nextSpill <= 0 && !this.spill) { this.nextSpill = Math.max(15, 34 - this.time / 12); const q = w.pointNear(p.x, p.z, 6, 13); if (q) { const t = this.addTrash('barrel', q.x, q.z, true); t.spill = true; this.spill = { x: q.x, z: q.z, r: .8, t: 0, barrel: t }; this.emit('spill'); audio.sharkWarn(); } }
@@ -134,17 +138,17 @@ export class Game {
 
   clear() {
     for (const o of [...this.group.children]) this.group.remove(o);
-    this.trash = []; this.sharks = []; this.jellies = []; this.clams = []; this.pickups = []; this.followers = []; this.fish = []; this.cage = null; this.fishMesh.count = 0;
+    this.trash = []; this.sharks = []; this.jellies = []; this.clams = []; this.chests = []; this.pickups = []; this.followers = []; this.fish = []; this.cage = null; this.fishMesh.count = 0;
     for (const l of this.lanes) this.scene.remove(l); this.lanes = []; this.fx?.clear();
   }
 
   addFollower(id, x, z, buddy = false) {
-    const a = buildAnimal(id); a.scale.setScalar(ANIMAL_SCALE[id] * .75); a.position.set(this.p.x + x, .8, this.p.z + z); this.group.add(a);
+    const a = buildAnimal(id, { friend: true }); a.scale.setScalar(ANIMAL_SCALE[id] * .75); a.position.set(this.p.x + x, .8, this.p.z + z); this.group.add(a);
     const def = ANIMALS.find(q => q.id === id); this.followers.push({ id, m: a, x: a.position.x, z: a.position.z, yaw: 0, slot: this.followers.length, clean: def.clean, buddy });
   }
 
   spawnShark(i, delay) {
-    const m = buildShark(); m.visible = false; this.group.add(m);
+    const m = sharkRig(); m.visible = false; this.group.add(m);
     const lane = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 1).translate(0, .5, 0), mats.danger.clone()); lane.rotation.x = -Math.PI / 2; lane.visible = false; this.scene.add(lane); this.lanes.push(lane);
     const lvl = this.cfg.endless ? 4 + this.time / 25 : this.cfg.n;
     this.sharks.push({ m, lane, state: 'wait', t: -delay, x: 0, z: 0, yaw: 0, dir: { x: 0, z: 1 }, ang: i * 2.1, speed: 2.4 + Math.min(1.2, lvl * .05), windup: Math.max(.6, .95 - lvl * .015), roll: 0 });
@@ -213,7 +217,7 @@ export class Game {
       const dx = tx - f.x, dz = tz - f.z; f.x += dx * (1 - Math.exp(-2.5 * dt)); f.z += dz * (1 - Math.exp(-2.5 * dt));
       if (Math.hypot(dx, dz) > .05) f.yaw = angleLerp(f.yaw, Math.atan2(dx, dz), 1 - Math.exp(-6 * dt));
       const r2 = w.brush(f.x, f.z, .75 * f.clean, 3 * dt); this.onCleaned(r2.done);
-      f.m.position.set(f.x, .7 + Math.sin(this.time * 2 + i) * .12, f.z); f.m.rotation.y = f.yaw; for (const an of f.m.userData.anim) an(this.time, 1.3); f.m.userData.shadow.position.y = -f.m.position.y / f.m.scale.x + .03;
+      f.m.position.set(f.x, .7 + Math.sin(this.time * 2 + i) * .12, f.z); f.m.rotation.y = f.yaw; for (const an of f.m.userData.anim) an(this.time, 1.3); f.m.userData.shadow.position.y = -f.m.position.y / f.m.scale.x + .03; if (f.m.userData.mark) f.m.userData.mark.position.y = f.m.userData.shadow.position.y;
     });
     // --- combo / fever
     if (this.comboT > 0) { this.comboT -= dt; if (this.comboT <= 0 && !this.fever) { if (this.tier >= 2) this.emit('comboLost', { tier: this.tier }); this.combo = 0; this.tier = 0; this.plinkStep = 0; } }
@@ -226,7 +230,7 @@ export class Game {
     this.nextO2 -= dt; if (this.nextO2 <= 0) { this.nextO2 = 11; if (this.pickups.length < 2 && this.o2 < this.maxO2 * .8) this.spawnO2(this.o2 < this.maxO2 * .3); }
     this.invuln = Math.max(0, this.invuln - dt);
     // --- entities
-    this.updateTrash(dt, s, bx, bz); this.updateRobot(dt); this.updateLure(dt); this.updateCage(dt); this.updateClams(dt); this.updatePickups(dt); this.updateSharks(dt); this.updateJellies(dt);
+    this.updateTrash(dt, s, bx, bz); this.updateRobot(dt); this.updateLure(dt); this.updateCage(dt); this.updateClams(dt); this.updateChests(dt); this.updatePickups(dt); this.updateSharks(dt); this.updateJellies(dt);
     if (this.ended) return;
     const E = this.cfg.endless; if (E) this.updateEndless(dt);
     // Finishing help: guide arrow to the nearest leftover dirt (or a leaking barrel), and sweep isolated pixels.
@@ -272,9 +276,7 @@ export class Game {
   popLure() { const l = this.lure; if (!l) return; this.group.remove(l.m); this.fx.sparkle(l.x, .5, l.z, 0xb9a6ff, 16, 3); this.fx.ring(l.x, l.z, 1.6, 0xb9a6ff, .4); audio.pop(.8); this.lure = null; }
   // Robot: a little drone that hunts the nearest dirt around you.
   makeRobot() {
-    const b = new Builder(); b.box(0, 0, 0, .55, .32, .5, [.42, .89, .86]); b.box(0, .32, 0, .3, .12, .3, [.25, .62, .66]); b.gem(0, .44, 0, .1, .2, [1, .9, .45]); b.box(0, .08, .27, .3, .12, .04, [.1, .2, .26]);
-    for (const s of [-1, 1]) b.box(s * .14, .14, .3, .07, .07, .03, [1, 1, .85]);
-    const m = new THREE.Mesh(b.geometry(), mats.flat); const p = this.p; m.position.set(p.x + 1, .7, p.z + 1); this.group.add(m);
+    const m = buildRobot(); m.scale.setScalar(1.25); const p = this.p; m.position.set(p.x + 1, .7, p.z + 1); this.group.add(m);
     this.robot = { m, x: p.x + 1, z: p.z + 1, yaw: 0, target: null, think: 0 };
   }
   updateRobot(dt) {
@@ -284,7 +286,7 @@ export class Game {
     if (d > .05) { r.x += dx / d * sp * dt; r.z += dz / d * sp * dt; r.yaw = angleLerp(r.yaw, Math.atan2(dx, dz), 1 - Math.exp(-6 * dt)); }
     const res = w.brush(r.x, r.z, .7 + lv * .15, (2.2 + lv * .9) * dt); this.onCleaned(res.done);
     if (res.touched && Math.random() < .3) this.fx.debris(r.x, r.z, w.biomeAt(r.x, r.z).dirt);
-    r.m.position.set(r.x, .6 + Math.sin(this.time * 4) * .07, r.z); r.m.rotation.set(Math.sin(this.time * 9) * .05, r.yaw, 0);
+    r.m.position.set(r.x, .7 + Math.sin(this.time * 4) * .06, r.z); r.m.rotation.set(Math.sin(this.time * 9) * .05, r.yaw, 0); r.m.userData.tick(this.time);
   }
   updateLure(dt) {
     const l = this.lure; if (!l) return; l.t -= dt; l.m.scale.setScalar(1 + Math.sin(this.time * 9) * .08); l.m.rotation.y += dt * 2;
@@ -304,10 +306,10 @@ export class Game {
     for (let i = this.trash.length - 1; i >= 0; i--) {
       const t = this.trash[i], def = TRASH[t.type], m = t.mesh; t.t += dt;
       const d = Math.hypot(t.x - bx, t.z - bz);
-      if (t.state === 'fall') { m.position.y -= dt * 4; m.rotation.x += dt * 3; m.rotation.z += dt * 2; if (Math.random() < .3) this.fx.bubble(m.position.x, m.position.y, m.position.z, .15, .5); if (m.position.y <= .12) { m.position.y = .12; m.rotation.x = 0; m.rotation.z = 0; t.state = 'idle'; this.fx.sparkle(t.x, .2, t.z, t.spill ? 0x553366 : 0xd8f6ff, 6, 1.5, .3); if (t.spill) audio.hit(); } continue; }
+      if (t.state === 'fall') { m.position.y -= dt * 4; m.rotation.x += dt * 3; m.rotation.z += dt * 2; if (Math.random() < .3) this.fx.bubble(m.position.x, m.position.y, m.position.z, .15, .5); if (m.position.y <= 0) { m.position.y = 0; m.rotation.x = 0; m.rotation.z = 0; t.state = 'idle'; this.fx.sparkle(t.x, .2, t.z, t.spill ? 0x553366 : 0xd8f6ff, 6, 1.5, .3); if (t.spill) audio.hit(); } continue; }
       if (t.state === 'idle') {
         m.visible = this.world.isRevealed(t.x, t.z);
-        m.position.y = .12 + Math.sin(t.t * 1.5) * .03;
+        m.position.y = .02 + Math.sin(t.t * 1.5) * .02;
         if (m.visible && d < s.suck * (def.hold ? .8 : 1)) { if (def.hold) { t.hold += dt; m.position.x = t.x + Math.sin(t.t * 50) * .05 * t.hold; m.rotation.z = Math.sin(t.t * 40) * .1; if (t.hold >= def.hold) { t.state = 'fly'; t.vy = 2.5; } } else { t.state = 'fly'; t.vy = 2; } }
         else if (t.hold > 0) t.hold = Math.max(0, t.hold - dt * .4);
       } else {
@@ -366,6 +368,17 @@ export class Game {
     }
   }
 
+  addChest(x, z) { const m = buildChest(); m.position.set(x, 0, z); m.rotation.y = this.r() * 6; this.group.add(m); this.chests.push({ m, x, z, state: 'idle', t: 0 }); }
+  updateChests(dt) {
+    for (let i = this.chests.length - 1; i >= 0; i--) {
+      const c = this.chests[i]; c.t += dt; c.m.visible = this.world.isRevealed(c.x, c.z); if (!c.m.visible) continue;
+      if (c.state === 'idle') { c.m.userData.tick(this.time);
+        if (Math.hypot(this.p.x - c.x, this.p.z - c.z) < 1.3) { c.state = 'open'; c.t = 0; const mult = this.tier + 1; this.coins += CHEST_COINS; this.score += 300 * mult; audio.star(1); audio.coin(1.3); this.fx.shake(.2); this.emit('haptic', { ms: [20, 30, 40] });
+          this.fx.confetti(c.x, 1, c.z, [0xffd447, 0x8fffe0, 0xffffff], 24); this.fx.text(c.x, 1.8, c.z, 'Treasure! +' + CHEST_COINS + '◈', 'gold big'); this.emit('coins', { x: c.x, y: .8, z: c.z, n: 5 }); } }
+      else { const k = c.t / .6; c.m.scale.setScalar(Math.max(.001, 1 - k)); c.m.position.y = k * .8; c.m.rotation.y += dt * 10; if (k >= 1) { this.group.remove(c.m); this.chests.splice(i, 1); } }
+    }
+  }
+
   updatePickups(dt) {
     for (let i = this.pickups.length - 1; i >= 0; i--) {
       const q = this.pickups[i]; q.t += dt; q.m.position.y = Math.sin(q.t * 2) * .15; q.m.rotation.y += dt;
@@ -392,8 +405,8 @@ export class Game {
       if (face !== null) sh.yaw = angleLerp(sh.yaw, face, 1 - Math.exp(-5 * dt));
       if (moveSpeed) { sh.x += Math.sin(sh.yaw) * moveSpeed * dt; sh.z += Math.cos(sh.yaw) * moveSpeed * dt; }
       if (this.cfg.endless) { const b = this.world.bounds(); sh.x = clamp(sh.x, b.x0 - 4, b.x1 + 4); sh.z = clamp(sh.z, b.z0 - 4, b.z1 + 4); } else { sh.x = clamp(sh.x, -S * .65, S * .65); sh.z = clamp(sh.z, -S * .65, S * .65); }
-      if (sh.state !== 'windup') m.position.x = sh.x; m.position.z = sh.z; m.position.y = .55 + Math.sin(sh.t * 2) * .06; m.rotation.set(0, sh.yaw, sh.roll, 'YXZ');
-      ud.tail.rotation.y = Math.sin(this.time * (sh.state === 'dash' ? 22 : 8)) * .45; ud.shadow.position.y = -.53;
+      if (sh.state !== 'windup') m.position.x = sh.x; m.position.z = sh.z; m.position.y = .3 + Math.sin(sh.t * 2) * .06; m.rotation.set(0, sh.yaw, sh.roll, 'YXZ');
+      ud.tail.rotation.y = Math.sin(this.time * (sh.state === 'dash' ? 22 : 8)) * .45; ud.shadow.position.y = -m.position.y + .03;
     }
   }
 
@@ -410,15 +423,15 @@ export class Game {
 
   animate(dt, mag) {
     const p = this.p, d = this.diver, ud = d.userData, t = this.time;
-    d.position.set(p.x, .15 + Math.sin(t * 2.4) * .06, p.z); d.rotation.y = p.yaw;
-    p.lean = damp(p.lean, .35 + mag * .75, 6, dt); ud.pivot.rotation.x = p.lean;
-    const kick = Math.sin(t * (mag > .1 ? 11 : 3.5)) * (.18 + mag * .45); ud.legs[0].rotation.x = kick; ud.legs[1].rotation.x = -kick;
-    ud.nozzle.rotation.y = this.sucking ? Math.sin(t * 7) * .2 : 0; ud.nozzle.position.y = .22 + Math.sin(t * 3) * .03;
-    ud.shadow.position.y = -d.position.y + .03;
+    d.position.set(p.x, .66 + Math.sin(t * 2.4) * .05, p.z); d.rotation.y = p.yaw;
+    p.lean = damp(p.lean, mag, 6, dt); ud.pivot.rotation.x = p.lean * .1; ud.pivot.rotation.z = Math.sin(t * 4.5) * .04 * (.3 + mag);
+    const kick = Math.sin(t * (mag > .1 ? 10 : 3.5)) * (.15 + mag * .3); ud.legs[0].rotation.x = kick; ud.legs[1].rotation.x = -kick;
+    ud.nozzle.rotation.y = this.sucking ? Math.sin(t * 7) * .2 : 0; ud.nozzle.position.y = -.52 + Math.sin(t * 3) * .02;
+    ud.shadow.position.y = (-d.position.y + .03) / d.scale.y;
     d.visible = this.invuln <= 0 || Math.floor(t * 14) % 2 === 0;
     this.shieldMesh.visible = this.shield > 0 && !this.ended; if (this.shieldMesh.visible) { this.shieldMesh.position.set(p.x, .8, p.z); this.shieldMesh.scale.setScalar(1 + Math.sin(t * 4) * .04); }
     if (ud.rainbow) ud.bodyMesh.material.emissive?.setHSL((t * .3) % 1, 1, .3);
-    if (Math.random() < dt * 2.5) this.fx.bubble(p.x - Math.sin(p.yaw) * .3, 1.4, p.z - Math.cos(p.yaw) * .3, .18);
+    if (Math.random() < dt * 2.5) this.fx.bubble(p.x + Math.sin(p.yaw) * .6, 1.2, p.z + Math.cos(p.yaw) * .6, .18);
     // Pulse-ready ring
     const cr = this.chargeRing, s = this.stats(); cr.position.set(p.x, .05, p.z); cr.scale.setScalar(s.radius * (this.charge >= 1 ? 1 + Math.sin(t * 6) * .04 : .8 + this.charge * .2)); cr.material.opacity = this.charge >= 1 ? .75 : .18; cr.material.color.set(this.charge >= 1 ? (this.fever ? new THREE.Color().setHSL((t * .8) % 1, 1, .65) : 0x9ffcf0) : 0x4c8c90);
     // Guide arrow

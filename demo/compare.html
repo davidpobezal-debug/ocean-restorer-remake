@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Look Compare</title>
+<style>
+  :root { color-scheme: dark; font-family: system-ui, -apple-system, sans-serif; }
+  html, body { margin: 0; height: 100%; background: #062b3b; overflow: hidden; }
+  #wrap { display: flex; height: 100%; }
+  iframe { flex: 1; min-width: 0; border: 0; border-right: 2px solid #0b4152; }
+  iframe:last-child { border: 0; }
+  @media (max-aspect-ratio: 1/1) { #wrap { flex-direction: column; } iframe { border-right: 0; border-bottom: 2px solid #0b4152; } }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <iframe src="models.html?look=lowpoly&embed=1" title="A: low-poly remake"></iframe>
+  <iframe src="models.html?look=boxy&embed=1" title="B: original style"></iframe>
+</div>
+<script>
+  // Open both panes on the same tab (?view=lineup).
+  if (location.search.includes('view=lineup')) for (const f of document.querySelectorAll('iframe')) f.src += '&view=lineup';
+</script>
+</body>
+</html>

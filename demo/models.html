@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>V3 Models</title>
+<style>
+  :root { color-scheme: dark; font-family: system-ui, -apple-system, sans-serif; }
+  html, body { margin: 0; height: 100%; background: #062b3b; color: #e9fcf6; overflow: hidden; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  #bar { position: fixed; left: 10px; right: 10px; top: 10px; z-index: 3; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  #bar button { background: rgba(4, 30, 45, .85); color: #e9fcf6; border: 1px solid #2a8a90; border-radius: 9px; padding: 6px 11px; font: inherit; font-size: 14px; cursor: pointer; }
+  #bar button.on { background: #ffd23f; color: #3a2a00; border-color: #ffd23f; font-weight: 700; }
+  #fps { margin-left: auto; font-size: 12px; opacity: .75; background: rgba(4, 30, 45, .7); padding: 4px 8px; border-radius: 8px; }
+  #labels { position: fixed; inset: 0; z-index: 2; pointer-events: none; }
+  .lab { position: absolute; left: 0; top: 0; white-space: nowrap; font-size: 12px; background: rgba(4, 30, 45, .82); border: 1px solid #1d6f78; border-radius: 8px; padding: 2px 7px; pointer-events: auto; cursor: zoom-in; }
+  .lab b { color: #ffd23f; }
+  #labels.short .lab span { display: none; }
+  .cat { position: absolute; left: 0; top: 0; font-weight: 800; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: #6ff2df; text-shadow: 0 1px 3px #000; }
+  #look { color: #6ff2df; font-size: 15px; margin-right: 4px; text-shadow: 0 1px 3px #000; }
+  body.embed #hint { display: none; }
+  #hint { position: fixed; left: 10px; bottom: 10px; z-index: 3; font-size: 12px; opacity: .7; }
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"}}</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="labels"></div>
+<div id="bar">
+  <b id="look"></b>
+  <button data-mode="scene">Scene</button><button data-mode="lineup">Models</button>
+  <button id="spin">Turntable</button><button id="aa"></button><button id="home">Reset view</button>
+  <span id="fps"></span>
+</div>
+<div id="hint">Drag to rotate · scroll/pinch to zoom · right-drag to pan · click a label to zoom in</div>
+<script type="module" src="models.js"></script>
+</body>
+</html>

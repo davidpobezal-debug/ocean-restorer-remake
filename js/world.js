@@ -2,7 +2,9 @@
 // Expedition mode is a chain of big regions (one biome each) that open one after another.
 import * as THREE from 'three';
 import { rng, fbm, clamp, easeOutElastic, hash2 } from './util.js';
-import { mats, coralGeometries, kelpGeometry, swayMaterial, rockGeometry, buildWreck, buildCrystals, buildArch } from './models.js';
+import { swayMaterial } from './models.js';
+import { materials, coralGeometries, kelpGeometry, rockGeometry, CORAL_TYPES, wreck as buildWreck, crystals as buildCrystals, arch as buildArch } from './boxy.js';
+const STAR = CORAL_TYPES.indexOf('star');
 import { ANIMALS } from './save.js';
 
 // V3 palette follows the original V2.2.2: dark water, saturated restored seabed, candy-coloured corals.
@@ -97,7 +99,7 @@ void main(){
 }`;
 
 export class World {
-  constructor(scene) { this.scene = scene; this.group = null; this.coralGeos = coralGeometries(); this.kelpGeo = kelpGeometry(); this.rockGeo = rockGeometry(); this.kelpMat = swayMaterial(mats.flat, .14); }
+  constructor(scene) { this.scene = scene; this.group = null; this.coralGeos = coralGeometries(); this.kelpGeo = kelpGeometry(); this.rockGeo = rockGeometry(); this.kelpMat = swayMaterial(materials().solid, .14); }
 
   build(cfg) {
     if (this.group) this.dispose();
@@ -277,7 +279,7 @@ export class World {
     for (const [bi, reg] of centers) {
       const cp = E ? this.randomPoint(r, { region: reg, clearance: 2.5, shape: true, avoid: [home] }) : this.randomPoint(r, { minR: S * .2, clearance: 2.5, shape: true });
       let m = null; const kind = BIOMES[bi].center;
-      if (kind === 'wreck') { m = buildWreck(); m.scale.setScalar(.8); } else if (kind === 'crystals') m = buildCrystals(); else if (kind === 'arch') m = buildArch();
+      if (kind === 'wreck') { m = buildWreck(); m.scale.setScalar(1.7); } else if (kind === 'crystals') { m = buildCrystals(); m.scale.setScalar(1.6); } else if (kind === 'arch') { m = buildArch(); m.scale.setScalar(1.3); }
       if (m) { m.position.set(cp.x, 0, cp.z); m.rotation.y = r() * 6; this.group.add(m); this.centerpieces.push({ ...cp, r: 3 }); }
     }
     this.centerpiece = this.centerpieces[0] || { x: 99, z: 99, r: 0 };
@@ -288,11 +290,11 @@ export class World {
       const p = E ? this.randomPoint(r, { region: reg, clearance: .3, maxTries: 20, shape: true }) : this.randomPoint(r, { clearance: .3, maxTries: 20, shape: true, maxR: S * .47 });
       if (Math.hypot(p.x, p.z) < 2.2) continue;
       const type = r.int(0, this.coralGeos.length - 1), rg = this.regionAt(p.x, p.z);
-      const c = { x: p.x, z: p.z, k: this.idx(p.x, p.z), reg: rg, type, rot: r() * 6.28, s: .65 + r() * .75 * (type === 5 ? .6 : 1), color: new THREE.Color(r.pick(this.biomeAt(p.x, p.z).corals)), t: -1, slot: perType[type].length, hidden: !this.revealedIn(rg, p.x) };
+      const c = { x: p.x, z: p.z, k: this.idx(p.x, p.z), reg: rg, type, rot: r() * 6.28, s: .65 + r() * .75 * (type === STAR ? .6 : 1), color: new THREE.Color(r.pick(this.biomeAt(p.x, p.z).corals)), t: -1, slot: perType[type].length, hidden: !this.revealedIn(rg, p.x) };
       perType[type].push(c); this.corals.push(c);
     }
     this.coralMeshes = this.coralGeos.map((g, ti) => {
-      const list = perType[ti]; const mesh = new THREE.InstancedMesh(g, !E && this.biome.glow ? mats.glow : mats.flat, Math.max(1, list.length)); mesh.count = list.length;
+      const list = perType[ti]; const mesh = new THREE.InstancedMesh(g, !E && this.biome.glow ? materials().glow : materials().solid, Math.max(1, list.length)); mesh.count = list.length;
       list.forEach((c, i) => { this.setCoral(mesh, c, i, 0, dummy); }); mesh.instanceMatrix.needsUpdate = true; if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
       this.group.add(mesh); return mesh;
     });
@@ -313,7 +315,7 @@ export class World {
       if (this.isShape(x, z)) continue; let near = false; for (const o of [[1.2, 0], [-1.2, 0], [0, 1.2], [0, -1.2]]) if (this.isShape(x + o[0], z + o[1])) near = true;
       if (near || r() < .15) rocks.push({ x, z, s: .45 + r() * (near ? .9 : 1.6) });
     }
-    this.rockMesh = new THREE.InstancedMesh(this.rockGeo, mats.flat, rocks.length);
+    this.rockMesh = new THREE.InstancedMesh(this.rockGeo, materials().solid, rocks.length);
     rocks.forEach((p, i) => { dummy.position.set(p.x, -.1, p.z); dummy.rotation.set(r() * .3, r() * 6, r() * .3); dummy.scale.set(p.s * 1.2, p.s * (.35 + r() * .35), p.s * 1.2); dummy.updateMatrix(); this.rockMesh.setMatrixAt(i, dummy.matrix); this.rockMesh.setColorAt(i, new THREE.Color(this.biomeAt(p.x, p.z).rock).multiplyScalar(.9 + r() * .5)); });
     this.group.add(this.rockMesh);
   }

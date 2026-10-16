@@ -419,7 +419,9 @@ export function sharkRig() {
   const root = shark(), alert = new THREE.Sprite(new THREE.SpriteMaterial({ map: textTexture('!', '#ff3b4f'), depthTest: false, transparent: true })), stars = new THREE.Sprite(new THREE.SpriteMaterial({ map: textTexture('✦✦', '#ffe36e'), depthTest: false, transparent: true }));
   alert.scale.set(.8, .8, .8); alert.position.y = 1.5; alert.visible = false; stars.scale.set(1.1, .55, 1); stars.position.y = 1.2; stars.visible = false;
   const tail = root.children.find(c => c.isGroup), sh = blobShadow(2.6); root.add(alert, stars, sh);
-  Object.assign(root.userData, { tail, alert, stars, shadow: sh });
+  // Angry brows for the wind-up and dash, so the attack reads at a glance.
+  const bb = new Builder(); for (const s of [-1, 1]) bb.cube(s * .2, .46, .84, .19, .04, .05, PUPIL, 0, 0, s * .45); const brows = mesh(bb); brows.visible = false; root.add(brows);
+  Object.assign(root.userData, { tail, alert, stars, shadow: sh, brows });
   return root;
 }
 // Rescued animals & buddies; friend adds the original's gold ring + gem.
@@ -440,12 +442,12 @@ export function smallFishGeometry() {
   for (const s of [-1, 1]) { m.ellipsoid(s * .075, .04, .13, .035, .04, .035, [1, 1, 1], 0, 5, 2); m.ellipsoid(s * .095, .045, .15, .02, .025, .02, PUPIL, 0, 5, 2); }
   return m.geometry();
 }
-// World decor (instanced, tinted per instance): white corals, kelp, rocks.
+// World decor (instanced, tinted per instance): white corals and rocks; kelp keeps its greens.
 export const CORAL_TYPES = ['branch', 'spike', 'brain', 'tube', 'table', 'fan', 'anemone', 'star'];
 export function coralGeometries() { return CORAL_TYPES.map(t => coral(t, [1, 1, 1]).geometry); }
 export function kelpGeometry() {
   const m = new Builder();
-  for (let s = 0; s < 3; s++) { const x0 = (s - 1) * .16, z0 = (s % 2) * .1, n = 5 + s; for (let i = 0; i < n; i++) { const y = i * .3, c = i % 2 ? [.8, .8, .8] : [1, 1, 1]; m.box(x0, y, z0, .05, .32, .05, [.6, .6, .6]); m.box(x0 + .08 * (i % 2 ? 1 : -1), y + .05, z0, .16, .24, .03, c, 0, 0, (i % 2 ? -1 : 1) * .5); } }
+  for (let s = 0; s < 3; s++) { const x0 = (s - 1) * .16, z0 = (s % 2) * .1, n = 5 + s; for (let i = 0; i < n; i++) { const y = i * .3, c = i % 2 ? [.36, .78, .3] : [.52, .86, .34]; m.box(x0, y, z0, .05, .32, .05, [.24, .55, .26]); m.box(x0 + .08 * (i % 2 ? 1 : -1), y + .05, z0, .16, .24, .03, c, 0, 0, (i % 2 ? -1 : 1) * .5); } }
   return m.geometry();
 }
 export function rockGeometry() {

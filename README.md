@@ -1,56 +1,67 @@
 # Ocean Restorer · Remake
 
-Mobilná 3D hra na jeden palec (Three.js, bez build kroku). Zmývaš špinu z morského dna, zachraňuješ zvieratká zo sietí a útes počas toho rozkvitá.
+A one-thumb 3D mobile game (Three.js, no build step). Wash the dirt off the seabed, rescue animals from ghost nets and watch the reef bloom back to life.
 
-## Spustenie lokálne
+## Run locally
 ```bash
 python -m http.server 8742
 ```
-Potom otvor http://localhost:8742. Na GitHub Pages stačí nahrať celý priečinok.
+Then open http://localhost:8742. For GitHub Pages, upload the whole folder.
 
-## Ovládanie
-- **Ťahaj palcom kdekoľvek:** potápač pláva a čistí dno.
-- **Pusti palec:** sonarový pulz. Odplaší žraloky, odtlačí medúzy, vyčistí okolie a nasaje odpad. Na počítači použi WASD alebo šípky, pulz je medzerník.
+## Controls
+- **Drag anywhere:** the diver swims and vacuums the seabed.
+- **Let go:** sonar pulse. Scares sharks, pushes jellyfish away, cleans around you and pulls in trash. On a computer use WASD or arrows; Space is the pulse.
 
-## Expedícia (hlavný režim)
-- **Jeden nekonečný ponor**, cieľom je čo najvyššie skóre.
-- **Svet sa rozširuje po kruhoch:** Tropický útes → Vrakovisko → Kelpový les → Svetielkujúce hlbiny. Keď vyčistíš 70 % oblasti, otvorí sa ďalšia. Dostaneš plný kyslík, +1 ❤️ a bonus 1 000 × číslo oblasti.
-- **Panel vylepšení je stále dole:** Dosah, Výkon, Plutvy, Pulz a +25 s O₂. Kupuješ ich za mince z ponoru jedným ťuknutím a v každom ponore začínaš od nuly, takže súťaž je férová.
-- **Svet sa sám znova špiní:** z hladiny padá odpad a sudy, z ktorých uniká ropa. Ropa sa šíri, kým sud nevysaješ.
-- Žraloky pribúdajú s časom a každých 20 m² vyčisteného dna dá +1 s kyslíka.
-- Výzva kamarátovi má tvar `?e=<seed>&s=<skóre>&n=<meno>`, takže kamarát hrá rovnaké dno. Denná výzva je rovnaká Expedícia pre všetkých.
+## Expedition (main mode)
+- **One endless dive**, the goal is the highest score.
+- **Four big regions, one after another**, each in its own colour: Tropical Reef → Shipwreck → Kelp Forest → Glowing Deep. Clean 70 % of a region and the next one opens. You get full oxygen, +1 ❤️ and a 1,000 × region bonus.
+- **The upgrade dock is always at the bottom:** Reach, Power, Fins, Robot / Pulse, Shield, Lure, +25 s O₂. Buy with coins from the dive in one tap; every dive starts from zero so the score chase is fair.
+  - **Robot** is a little helper drone that hunts the nearest dirt.
+  - **Shield** blocks one hit. **Lure** is a decoy the sharks chase instead of you.
+- **The world gets dirty again:** trash sinks from the surface and leaking barrels spread oil until you vacuum them up.
+- **Treasure chests** sit out on the dirty seabed: swim over one for +55 ◈.
+- Sharks join as the dive goes on; every 20 m² cleaned gives +1 s of oxygen.
+- A random rescued friend joins every dive (picking one will later be a rewarded-ad perk).
+- The minimap shows what is left to clean, the friend in the net, oil leaks, sharks and O₂.
+- A friend challenge is `?e=<seed>&s=<score>&n=<name>`, so your friend plays the same seabed. The Daily Dive is the same expedition for everyone.
 
-## Levely (druhý režim)
-- Levely trvajú 1 až 3 minúty. ★ dostaneš pri 60 %, ★★ pri 85 % a ★★★ pri 100 % obnoveného útesu. Kyslík je časovač a bubliny O₂ ho dopĺňajú.
-- **Kombo:** keď čistíš bez prestávky, násobič rastie ×2 až ×4, potom nastane **FEVER ×5**. Vtedy máš obrovský dosah a ozve sa dúhová hudba.
-- **Odpad:** fľaše, plechovky, vrecká, pneumatiky a sudy vysaješ. Ťažké kusy treba chvíľu držať. Mince lietajú do počítadla.
-- **Záchrana:** zviera v sieti (korytnačka, tuleň, chobotnica, delfín, veľrybka) po vyslobodení s tebou pláva a pomáha čistiť. Pribudne aj do zbierky.
-- **Mušle s perlami** sú skryté pod špinou. Perly sú prémiová mena: dajú sa za ne obleky a druhá šanca.
-- Od levelu 4 prichádzajú **žraloky**. Pred útokom sa objaví červený pás, takže stihneš uhnúť alebo použiť pulz. Od levelu 6 pribudnú **medúzy**.
-- **Biómy** sa striedajú po troch leveloch: Tropický útes, Vrakovisko, Kelpový les a Svetielkujúce hlbiny.
-- Ku koncu levelu šípka ukáže zvyšky špiny, takže 100 % sa vždy dá dosiahnuť.
+## Levels (second mode)
+- Levels take 1 to 3 minutes. ★ at 60 %, ★★ at 85 % and ★★★ at 100 % of the reef restored. Oxygen is the timer and O₂ bubbles top it up.
+- **Combo:** clean without a pause and the multiplier grows ×2 to ×4, then **FEVER ×5** with a huge reach and rainbow music.
+- **Trash:** bottles, cans, bags, boots, crates, tires and barrels. Heavy pieces need a moment of holding.
+- **Rescue:** an animal in a net (turtle, seal, octopus, dolphin, whale) swims with you after you free it and helps clean. It joins your collection too.
+- **Clams with pearls** are hidden under the dirt. Pearls are the premium currency for suits and a second chance.
+- From level 4 come **sharks**: a red lane warns before the dash, so you can dodge or pulse. From level 6 come **jellyfish**.
+- Near the end an arrow points to the leftover dirt, so 100 % is always reachable.
 
-## Virálne prvky
-- Zdieľací obrázok **PRED / PO** (1080 × 1350), na ktorom je skóre, hviezdy, zachránené zvieratá a adresa hry.
-- **Odkaz s výzvou** `?l=7&s=12345&n=Meno`: kamarát po otvorení uvidí kartu „Meno ťa vyzýva“. Po hre sa zobrazí, kto vyhral, a víťaz dostane +50 ◈.
-- **Denná výzva:** rovnaký útes pre všetkých v daný deň. Zdieľa sa ako text s mriežkou emoji v štýle Wordle.
-- **Zdieľaj a pokračuj:** pri prehre zdieľanie dá druhú šancu. Prvé zdieľanie za deň dá +50 ◈.
-- Séria dní 🔥 a bonus za prvý ponor dňa.
-- PWA: hru si môžeš pridať na plochu a funguje aj offline. Odkazy na Messengeri a WhatsAppe majú náhľad (`og:image`).
+## Viral bits
+- A **BEFORE / AFTER** share image (1080 × 1350) with score, stars, rescued animals and the game address.
+- **Challenge links** `?l=7&s=12345&n=Name`: your friend sees "Name challenges you"; the winner gets +50 ◈.
+- **Daily Dive:** the same reef for everyone that day, shared as a Wordle-style emoji grid.
+- **Share & keep going:** after a loss, sharing gives a second chance. The first share of the day gives +50 ◈.
+- Day streak 🔥 and a first-dive-of-the-day bonus.
+- PWA: add it to your home screen, it works offline. Links in Messenger and WhatsApp have a preview (`og:image`).
 
-## Súbory
-| Súbor | Obsah |
+## Look
+Models follow the original game: chunky boxes, gems and faceted shapes with flat colours, crisp edges and smoothing (MSAA). The diver swims flat, buddies wear a thin gold ring and a small gold gem, and pickups (O₂, pearls, treasure) glow.
+- `demo/models.html`: every model in a numbered lineup plus a small reef scene (`?look=lowpoly` shows the alternative low-poly look).
+- `demo/compare.html`: both looks side by side. `demo/robot.html`: robot helper candidates.
+
+## Files
+| File | Contents |
 |---|---|
-| `js/main.js` | renderer, kamera, obrazovky, HUD, zdieľanie |
-| `js/game.js` | logika hry (pohyb, kombo, odpad, záchrana, žraloky, medúzy) |
-| `js/world.js` | generovanie levelov, shader dna s maskou špiny, korály |
-| `js/models.js` | procedurálne low-poly modely |
-| `js/fx.js` | častice, rázové vlny, lietajúce čísla a mince |
-| `js/audio.js` | procedurálne zvuky a generatívna hudba |
-| `js/save.js` | postup v localStorage, vylepšenia, obleky, zvieratá |
-| `js/share.js` | zdieľací obrázok, odkazy s výzvou, text dennej výzvy |
-| `TRIPO.md` | prompty na 3D modely pre Tripo |
+| `js/main.js` | renderer, camera, screens, HUD, minimap, sharing |
+| `js/game.js` | gameplay (movement, combo, trash, chests, rescue, sharks, jellyfish, robot, lure) |
+| `js/world.js` | regions, the seabed shader with the dirt mask, corals |
+| `js/boxy.js` | the game's models in the original style |
+| `js/models.js` | shared materials, net, shadows and the older low-poly models |
+| `js/lowpoly.js` | the alternative low-poly look (demo only) |
+| `js/fx.js` | particles, shockwaves, floating numbers and coins |
+| `js/audio.js` | procedural sounds and generative music |
+| `js/save.js` | progress in localStorage, upgrades, suits, animals |
+| `js/share.js` | share image, challenge links, daily text |
+| `TRIPO.md` | prompts for Tripo 3D models |
 
-## Ďalšie možné kroky
-- Globálny rebríček a počítadlo „spolu sme vyčistili X m²“, napríklad cez Supabase (zadarmo).
-- GLB modely z Tripo namiesto procedurálnych (pozri `TRIPO.md`).
+## Possible next steps
+- A global leaderboard and a "together we cleaned X m²" counter, e.g. with Supabase (free tier).
+- Rewarded ads: pick your dive buddy, second chance.

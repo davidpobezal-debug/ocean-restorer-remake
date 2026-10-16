@@ -406,7 +406,7 @@ export class Game {
       if (moveSpeed) { sh.x += Math.sin(sh.yaw) * moveSpeed * dt; sh.z += Math.cos(sh.yaw) * moveSpeed * dt; }
       if (this.cfg.endless) { const b = this.world.bounds(); sh.x = clamp(sh.x, b.x0 - 4, b.x1 + 4); sh.z = clamp(sh.z, b.z0 - 4, b.z1 + 4); } else { sh.x = clamp(sh.x, -S * .65, S * .65); sh.z = clamp(sh.z, -S * .65, S * .65); }
       if (sh.state !== 'windup') m.position.x = sh.x; m.position.z = sh.z; m.position.y = .3 + Math.sin(sh.t * 2) * .06; m.rotation.set(0, sh.yaw, sh.roll, 'YXZ');
-      ud.tail.rotation.y = Math.sin(this.time * (sh.state === 'dash' ? 22 : 8)) * .45; ud.shadow.position.y = -m.position.y + .03;
+      ud.tail.rotation.y = Math.sin(this.time * (sh.state === 'dash' ? 22 : 8)) * .45; ud.shadow.position.y = -m.position.y + .03; ud.brows.visible = sh.state === 'windup' || sh.state === 'dash';
     }
   }
 

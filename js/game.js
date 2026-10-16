@@ -72,7 +72,7 @@ export class Game {
     this.runUp = Object.fromEntries(RUN_UP.map(u => [u.id, 0])); this.shield = 0; this.lure = null; this.robot = null; this.nextTrash = 5; this.nextSpill = 38; this.spill = null; this.trickle = 0; this.coinAcc = 0; this.perfect = false; this.pendingFish = [];
     this.animalQueue = ANIMALS.map(a => a.id).sort(() => r() - .5);
     Object.assign(this, { p: { x: 0, z: 0, vx: 0, vz: 0, yaw: Math.PI, lean: 0 }, hearts: 3, invuln: 0, charge: 1, score: 0, coins: 0, pearls: 0, combo: 0, comboT: 0, tier: 0, fever: 0, plinkStep: 0, plinkAcc: 0,
-      time: 0, ended: false, sucking: false, starsGot: 0, milestone: 0, trashCombo: 0, trashT: 0, rescued: [], sharksScared: 0, trashCount: 0, nextO2: 9, lowWarned: false, guideT: 0, guideTarget: null, sweepT: 0, continued: false, freeCleanT: 0, paused: false, kills: 0, pctShown: 0 });
+      time: 0, ended: false, sucking: false, starsGot: 0, milestone: 0, trashCombo: 0, trashT: 0, rescued: [], sharksScared: 0, trashCount: 0, nextO2: 9, lowWarned: false, guideT: 0, guideTarget: null, sweepT: 0, continued: false, freeCleanT: 0, paused: false, kills: 0, pctShown: 0, seaDone: false });
     const avoid = [{ x: 0, z: 0, r: 3.5 }, w.centerpiece];
     // Trash on the dirty seabed.
     for (let i = 0; i < cfg.trash; i++) {
@@ -91,6 +91,15 @@ export class Game {
     // Treasure chest (from the original): sits out on the dirty seabed, worth a detour.
     { const p = cfg.endless ? w.randomPoint(r, { region: 0, shape: true, clearance: .8, avoid: [...avoid, { x: 0, z: 0, r: 5 }] }) : w.randomPoint(r, { minR: w.S * .25, clearance: .8, avoid }); this.addChest(p.x, p.z); }
     this.emit('start', { maxO2: this.maxO2 });
+  }
+
+  // Open Sea: rebuild the seabed as the next sea but keep the run (score, coins, run upgrades, friends).
+  nextSea(cfg) {
+    const keep = { score: this.score, coins: this.coins, pearls: this.pearls, runUp: this.runUp, hearts: Math.min(3, this.hearts + 1), rescued: this.rescued, kills: this.kills, trashCount: this.trashCount, sharksScared: this.sharksScared, time: this.time, shield: this.shield, continued: this.continued, combo: this.combo, tier: this.tier };
+    const friends = this.followers.filter(f => !f.buddy).map(f => f.id), robot = !!this.robot;
+    this.start(cfg); Object.assign(this, keep);
+    for (const id of friends) this.addFollower(id, (Math.random() - .5) * 2, 1 + Math.random());
+    if (robot) this.makeRobot();
   }
 
   addTrash(type, x, z, fall = false) {
@@ -117,7 +126,13 @@ export class Game {
 
   updateEndless(dt) {
     const w = this.world, p = this.p;
-    if (w.unlocked < 3 && w.reveal >= w.revealTarget && w.regionPct(w.unlocked) >= .7) {
+    const need = this.cfg.open ? .8 : .7;
+    // Open Sea: the last band is done – the run continues in a freshly generated sea.
+    if (this.cfg.open && w.unlocked === 3 && !this.seaDone && w.reveal >= w.revealTarget && w.regionPct(3) >= need) {
+      this.seaDone = true; this.o2 = Math.max(this.o2, this.maxO2); this.score += 5000 * this.cfg.sea; this.coins += 100;
+      audio.fanfare(); this.fx.shake(.3); this.fx.confetti(p.x, 1, p.z, w.biome.corals, 50); this.emit('haptic', { ms: [40, 60, 40, 60, 120] }); this.emit('seaEnd', { sea: this.cfg.sea });
+    }
+    if (w.unlocked < 3 && w.reveal >= w.revealTarget && w.regionPct(w.unlocked) >= need) {
       w.unlock(); const b = BIOMES[w.biomeOf[w.unlocked]];
       this.o2 = Math.max(this.o2, this.maxO2); this.hearts = Math.min(3, this.hearts + 1); this.score += 1000 * w.unlocked; this.coins += 40;
       audio.fanfare(); this.fx.shake(.3); this.fx.ring(p.x, p.z, 8, b.rim, 1.2); this.emit('haptic', { ms: [30, 40, 60] }); this.emit('region', { n: w.unlocked, name: b.name });
@@ -383,7 +398,7 @@ export class Game {
     for (let i = this.pickups.length - 1; i >= 0; i--) {
       const q = this.pickups[i]; q.t += dt; q.m.position.y = Math.sin(q.t * 2) * .15; q.m.rotation.y += dt;
       if (Math.random() < .05) this.fx.bubble(q.x, .8, q.z, .2);
-      if (Math.hypot(this.p.x - q.x, this.p.z - q.z) < 1.3) { this.o2 = Math.min(this.maxO2 + 10, this.o2 + 10); audio.bubble(); audio.bubble(); this.fx.text(q.x, 1.4, q.z, '+10 s O₂', 'o2 big'); for (let k = 0; k < 14; k++) this.fx.bubble(q.x, .6, q.z, .35, 2.5); this.group.remove(q.m); this.pickups.splice(i, 1); this.emit('o2'); }
+      if (Math.hypot(this.p.x - q.x, this.p.z - q.z) < 1.3) { this.o2 = Math.min(this.maxO2 + 10, this.o2 + 10); audio.bubble(); audio.bubble(); this.fx.text(q.x, 1.4, q.z, '+10 s O₂', 'o2 big'); for (let k = 0; k < 14; k++) this.fx.bubble(q.x, .6, q.z, .35, 2.5); this.group.remove(q.m); this.pickups.splice(i, 1); this.emit('o2', { x: q.x, z: q.z }); }
     }
   }
 

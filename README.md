@@ -25,7 +25,12 @@ Then open http://localhost:8742. For GitHub Pages, upload the whole folder.
 - The minimap shows what is left to clean, the friend in the net, oil leaks, sharks and O₂.
 - A friend challenge is `?e=<seed>&s=<score>&n=<name>`, so your friend plays the same seabed. The Daily Dive is the same expedition for everyone.
 
-## Levels (second mode)
+## Open Sea (like the original map)
+- **One big continuous seabed**: the four biomes are bands side by side. Clean 80 % of a band and the next one opens.
+- **It never ends**: after the last band a new, dirtier sea is generated (new biome order). Score, coins, run upgrades, the robot and rescued friends carry over.
+- Same dock, sharks, leaks and chests as the Expedition; its best score is kept separately.
+
+## Levels
 - Levels take 1 to 3 minutes. ★ at 60 %, ★★ at 85 % and ★★★ at 100 % of the reef restored. Oxygen is the timer and O₂ bubbles top it up.
 - **Combo:** clean without a pause and the multiplier grows ×2 to ×4, then **FEVER ×5** with a huge reach and rainbow music.
 - **Trash:** bottles, cans, bags, boots, crates, tires and barrels. Heavy pieces need a moment of holding.

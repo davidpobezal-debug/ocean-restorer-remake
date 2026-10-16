@@ -1,7 +1,7 @@
 // Boot, render loop, camera, screens and the glue between game events and the HUD.
 import * as THREE from 'three';
 import { initMaterials, radialTexture } from './models.js';
-import { World, levelConfig, endlessConfig, BIOMES } from './world.js';
+import { World, levelConfig, endlessConfig, openConfig, BIOMES } from './world.js';
 import { Game, STAR_AT, RUN_UP } from './game.js';
 import { FX } from './fx.js';
 import { Input } from './input.js';
@@ -47,10 +47,10 @@ const newSeed = () => (Math.random() * 4294967295) >>> 0;
 const fogTarget = new THREE.Color();
 
 function resize() {
-  const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
-  fx.setScale(h * renderer.getPixelRatio(), camera.fov);
+  const app = $('app'), w = app.clientWidth || innerWidth, h = app.clientHeight || innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+  fx.vw = w; fx.vh = h; fx.setScale(h * renderer.getPixelRatio(), camera.fov);
 }
-addEventListener('resize', resize); visualViewport?.addEventListener('resize', resize);
+addEventListener('resize', resize); addEventListener('appresize', resize); visualViewport?.addEventListener('resize', resize);
 
 const dirOf = el => new THREE.Vector3(Math.sin(YAW) * Math.cos(el), Math.sin(el), Math.cos(YAW) * Math.cos(el));
 const FOLLOW_DIR = dirOf(.68), OVERVIEW_DIR = dirOf(.95);
@@ -96,7 +96,10 @@ function updateDock(force = false) {
 }
 $('dock').addEventListener('click', e => { const b = e.target.closest('[data-run]'); if (!b || state !== 'play') return; if (game.buyRun(b.dataset.run)) { audio.buy(); vibrate(20); updateDock(true); } else { audio.ui(); } });
 function updateHud() {
-  if (current?.endless) { const all = world.unlocked >= 3, k = all ? world.pct() : Math.min(1, world.regionPct() / .7); hud.pct.style.width = (k * 100).toFixed(1) + '%'; hud.pctT.textContent = (all ? '🪸 ' : '🔓 ') + Math.floor(k * 100) + ' %'; updateDock(); }
+  if (current?.endless) {
+    const O = current.open, all = world.unlocked >= 3 && !O, k = all ? world.pct() : Math.min(1, world.regionPct() / (O ? .8 : .7));
+    hud.pct.style.width = (k * 100).toFixed(1) + '%'; hud.pctT.textContent = (all ? '🪸 ' : O && world.unlocked >= 3 ? '🌊 ' : '🔓 ') + Math.floor(k * 100) + ' %'; updateDock();
+  }
   else { const pct = world.pct(); hud.pct.style.width = (pct * 100).toFixed(1) + '%'; hud.pctT.textContent = Math.floor(pct * 100) + ' %'; }
   const o = game.o2 / game.maxO2; hud.o2.style.width = clamp(o * 100, 0, 100) + '%'; hud.o2T.textContent = Math.ceil(game.o2); hud.o2Box.classList.toggle('low', game.o2 < 10);
   $('vignette').classList.toggle('low', game.o2 < 10 && !game.ended);
@@ -155,9 +158,22 @@ game.on('lowO2', () => { banner('Low oxygen!', 'red'); hint('🫧 Grab an O₂ b
 game.on('coins', ({ x, y, z, n }) => fx.coinsFly(x, y, z, n, hud.coinBox, () => { audio.tally(); hud.coinBox.classList.remove('bump'); void hud.coinBox.offsetWidth; hud.coinBox.classList.add('bump'); }));
 game.on('trashCombo', ({ n }) => fx.text(game.p.x, 2, game.p.z, `TRASH ×${n}!`, 'gold big'));
 game.on('haptic', ({ ms }) => vibrate(ms));
-game.on('o2', () => vibrate(20));
+game.on('o2', ({ x, z }) => {
+  vibrate(20);
+  fx.coinsFly(x, .8, z, 5, hud.o2Box, i => { if (i) return; hud.o2Box.classList.remove('gain'); void hud.o2Box.offsetWidth; hud.o2Box.classList.add('gain'); }, 'flybubble');
+});
 game.on('end', d => onEnd(d));
 game.on('region', ({ name }) => { banner(`🔓 New region!<small>${name} · full oxygen · +1 ❤️</small>`, 'gold'); vibrate([30, 40, 60]); });
+// Open Sea: after the last biome a brand-new sea forms under a quick fade; the run carries on.
+let seaSwitchT = 0;
+game.on('seaEnd', ({ sea }) => { banner(`🌊 Sea ${sea} restored!<small>a new ocean is forming…</small>`, 'gold'); vibrate([40, 60, 40, 60, 120]); seaSwitchT = 2.4; });
+function nextSea() {
+  const cfg = openConfig(newSeed(), current.sea + 1); current = cfg; $('fade').classList.add('on');
+  setTimeout(() => {
+    game.nextSea(cfg); setBiomeLook(world.biome); updateDock(true);
+    $('fade').classList.remove('on'); banner(`Sea ${cfg.sea}<small>${world.biome.name} · dirtier water ahead</small>`, 'gold');
+  }, 450);
+}
 game.on('spill', () => { banner('⚠️ Oil leak!<small>suck up the barrel before it spreads</small>', 'red'); tipOnce('spill', '🛢️ Hold the barrel under the nozzle for a moment', 3500); });
 game.on('spillStopped', () => vibrate([20, 30, 20]));
 
@@ -190,16 +206,16 @@ function renderHome() {
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 function startLevel(cfg, vs = activeVs) {
-  audio.unlock(); hideScreens(); activeVs = vs || null; current = cfg; result = null; before = after = null;
+  audio.unlock(); hideScreens(); activeVs = vs || null; current = cfg; result = null; before = after = null; seaSwitchT = 0; $('fade').classList.remove('on');
   game.start(cfg); setBiomeLook(world.biome); shownCoins = 0; lastHearts = -1; lastStars = -1;
   $('hud').classList.toggle('endless', !!cfg.endless); show('dock', !!cfg.endless); dockSig = ''; if (cfg.endless) updateDock(true);
   overviewPose(world.viewSize(), cam); scene.fog.density = FOG_K / cam.pos.distanceTo(cam.look); camera.position.copy(cam.pos); camera.lookAt(cam.look);
   state = 'intro'; stateT = 0; captureBefore = true; input.enabled = true; input.reset();
   show('hud'); $('vignette').className = ''; $('banner').className = ''; hideHint();
   const intro = $('intro'); intro.hidden = false; intro.style.animation = 'none'; void intro.offsetWidth; intro.style.animation = '';
-  $('introSub').textContent = cfg.daily ? `DAILY DIVE #${dayNumber()}` : cfg.endless ? 'EXPEDITION' : `LEVEL ${cfg.n}`;
-  $('introTitle').textContent = cfg.endless ? 'Wash as much as you can!' : world.biome.name;
-  $('introGoal').textContent = cfg.endless ? (vs ? `Beat ${vs.name}: ${fmt(vs.score)} pts` : 'Spend coins on upgrades below') : cfg.animal ? 'Wash the seabed and free the animal from the net' : cfg.sharks ? 'Watch out for sharks · wash the whole seabed' : 'Wash the grime off the seabed · ★ at 60 %';
+  $('introSub').textContent = cfg.daily ? `DAILY DIVE #${dayNumber()}` : cfg.open ? 'OPEN SEA' : cfg.endless ? 'EXPEDITION' : `LEVEL ${cfg.n}`;
+  $('introTitle').textContent = cfg.open ? 'One big ocean to restore' : cfg.endless ? 'Wash as much as you can!' : world.biome.name;
+  $('introGoal').textContent = cfg.open ? 'Clean 80 % to open the next biome' : cfg.endless ? (vs ? `Beat ${vs.name}: ${fmt(vs.score)} pts` : 'Spend coins on upgrades below') : cfg.animal ? 'Wash the seabed and free the animal from the net' : cfg.sharks ? 'Watch out for sharks · wash the whole seabed' : 'Wash the grime off the seabed · ★ at 60 %';
   save.totals.dives++; persist();
   if (!tips.move) { hint('<span class="finger">👆</span> Drag your thumb anywhere', 0); }
 }
@@ -208,19 +224,20 @@ function onEnd({ reason, perfect }) {
   const win = reason === 'win';
   result = { win, reason, perfect, pct: perfect ? 1 : world.pct(), stars: perfect ? 3 : game.starsGot, committed: false, endless: !!current.endless, overview: win || !!current.endless };
   input.enabled = false; input.reset(); $('vignette').classList.remove('low', 'fever'); hideHint();
-  if (current.endless) { state = 'outro'; stateT = 0; const best = save.best[current.daily ? 'd' + current.daily : 'endless'] || 0; if (game.score > best && best) { audio.fanfare(); fx.confetti(game.p.x, 1, game.p.z, world.biome.corals, 50); banner('🏆 NEW RECORD!', 'gold'); } else { audio.fail(); banner(reason === 'o2' ? 'Out of oxygen…' : 'A shark chased you off…', 'red'); } return; }
+  if (current.endless) { state = 'outro'; stateT = 0; const best = save.best[bestKey(current)] || 0; if (game.score > best && best) { audio.fanfare(); fx.confetti(game.p.x, 1, game.p.z, world.biome.corals, 50); banner('🏆 NEW RECORD!', 'gold'); } else { audio.fail(); banner(reason === 'o2' ? 'Out of oxygen…' : 'A shark chased you off…', 'red'); } return; }
   if (win) { state = 'celebrate'; stateT = 0; world.bloomAll(game.p.x, game.p.z); audio.fanfare(); fx.confetti(game.p.x, 1, game.p.z, world.biome.corals, 60); vibrate([40, 60, 40, 60, 120]); for (let i = 0; i < 40; i++) { const q = world.randomPoint(game.r, {}); game.addFish(q.x, q.z); } banner(perfect ? '✨ PERFECT! ✨<small>100 % of the reef restored</small>' : 'REEF SAVED!', 'gold'); }
   else { state = 'fail'; stateT = 0; audio.fail(); banner(reason === 'o2' ? 'Out of oxygen…' : 'A shark chased you off…', 'red'); }
 }
 
+const bestKey = cfg => cfg.daily ? 'd' + cfg.daily : cfg.open ? 'open' : cfg.endless ? 'endless' : cfg.n;
 function computeRewards() {
   const r = result, cfg = current;
   r.area = Math.round(world.doneCount * world.cell * world.cell);
   r.time = Math.floor(game.time / 60) + ':' + String(Math.floor(game.time % 60)).padStart(2, '0');
   r.animals = game.rescued.map(id => ANIMALS.find(a => a.id === id).emoji);
   if (cfg.endless) {
-    r.score = game.score; r.coins = Math.floor(r.score / 150); r.pearls = game.pearls; r.regions = world.unlocked + 1;
-    const key = cfg.daily ? 'd' + cfg.daily : 'endless'; r.prevBest = save.best[key] || 0; r.record = r.score > r.prevBest && r.score > 0;
+    r.score = game.score; r.coins = Math.floor(r.score / 150); r.pearls = game.pearls; r.regions = world.unlocked + 1 + (cfg.open ? (cfg.sea - 1) * 4 : 0);
+    const key = bestKey(cfg); r.prevBest = save.best[key] || 0; r.record = r.score > r.prevBest && r.score > 0;
     r.vs = activeVs ? { name: activeVs.name, score: activeVs.score, won: r.score > activeVs.score } : null; if (r.vs?.won) r.coins += 50; return;
   }
   const timeBonus = r.win ? Math.round(game.o2) * 30 : 0, perfectBonus = r.perfect ? 2000 : 0;
@@ -238,7 +255,7 @@ function commit() {
   // Deltas: a revived run commits again later without double counting.
   const prev = game.committed || (game.committed = { coins: 0, pearls: 0, area: 0, trash: 0, animals: 0, sharks: 0, time: 0 });
   r.streakBonus = touchStreak(); save.coins += r.coins - prev.coins + r.streakBonus; save.pearls += r.pearls - prev.pearls;
-  const key = cfg.daily ? 'd' + cfg.daily : cfg.endless ? 'endless' : cfg.n; if (cfg.endless && !cfg.daily && r.score > (save.best.endless || 0)) save.bestSeed = cfg.seed; save.best[key] = Math.max(save.best[key] || 0, r.score);
+  const key = bestKey(cfg); if (cfg.endless && !cfg.daily && !cfg.open && r.score > (save.best.endless || 0)) save.bestSeed = cfg.seed; save.best[key] = Math.max(save.best[key] || 0, r.score);
   if (r.win && !cfg.daily) { save.stars[cfg.n] = Math.max(save.stars[cfg.n] || 0, r.stars); if (cfg.n >= save.level) save.level = cfg.n + 1; }
   if (cfg.daily) { save.daily.day = todayKey(); save.daily.best = Math.max(save.daily.day === todayKey() ? save.daily.best : 0, r.score); save.daily.played++; }
   const t = save.totals; t.cleaned += r.area - prev.area; t.trash += game.trashCount - prev.trash; t.animals += game.rescued.length - prev.animals; t.sharks += game.sharksScared - prev.sharks; t.playSec += Math.round(game.time) - prev.time;
@@ -299,7 +316,7 @@ function showEndEndless() {
     if (save.pearls >= 3) add('💜 Continue +20 s · 3 ✦', 'big primary', () => { save.pearls -= 3; persist(); revive(); });
     add('📤 Share & keep going', 'big share', async b => { const res = await doShare(b, true); if (res !== 'cancel') revive(); });
   }
-  add('↻ New dive', game.continued ? 'big primary' : 'mid', () => startLevel(cfg.daily || (r.vs && !r.vs.won) ? cfg : endlessConfig(newSeed()), r.vs && !r.vs.won ? activeVs : null));
+  add('↻ New dive', game.continued ? 'big primary' : 'mid', () => startLevel(cfg.daily || (r.vs && !r.vs.won) ? cfg : cfg.open ? openConfig(newSeed()) : endlessConfig(newSeed()), r.vs && !r.vs.won ? activeVs : null));
   if (game.continued) add('📤 Share & challenge', 'big share', b => doShare(b));
   add('⌂ Home', 'mid', goHome);
 }
@@ -312,10 +329,10 @@ function countUp(el, a, b, ms, f) { const t0 = performance.now(); const step = n
 
 async function doShare(btn, forContinue = false) {
   if (!result.score && result.score !== 0) computeRewards();
-  const r = result, cfg = current, title = cfg.daily ? `Daily Dive #${dayNumber()}` : cfg.endless ? 'Expedition · endless dive' : `Level ${cfg.n} · ${world.biome.name}`;
+  const r = result, cfg = current, title = cfg.daily ? `Daily Dive #${dayNumber()}` : cfg.open ? `Open Sea · ${r.regions} biomes` : cfg.endless ? 'Expedition · endless dive' : `Level ${cfg.n} · ${world.biome.name}`;
   const card = makeCard({ before, after: after || snapshot(canvas), title, pct: r.pct, stars: r.stars, score: r.score, animals: r.animals, sub: cfg.daily ? 'Play today\'s dive 👉' : 'Can you beat my score? 👉', ...(cfg.endless ? { big: fmt(r.score), line: `points · ${fmt(r.area)} m² of ocean cleaned` } : {}) });
   const text = resultText({ level: cfg.n, daily: cfg.daily, pct: r.pct, stars: r.stars, score: r.score, emoji: cfg.daily ? world.emojiGrid(5) : '', animals: r.animals, time: r.time, endless: cfg.endless, area: r.area });
-  btn && (btn.disabled = true); const res = await shareResult({ card, text, url: challengeUrl({ level: cfg.n, score: r.score, daily: cfg.daily, seed: cfg.endless ? cfg.seed : undefined }) }); btn && (btn.disabled = false);
+  btn && (btn.disabled = true); const res = await shareResult({ card, text, url: cfg.open ? GAME_URL() : challengeUrl({ level: cfg.n, score: r.score, daily: cfg.daily, seed: cfg.endless ? cfg.seed : undefined }) }); btn && (btn.disabled = false);
   if (res === 'copied') toast('Text and link copied · image saved 📋');
   if (res !== 'cancel') rewardShare();
   return res;
@@ -366,6 +383,7 @@ $('panelClose').onclick = () => { audio.ui(); show('panel', false); renderHome()
 $('panel').onclick = e => { if (e.target.id === 'panel') { show('panel', false); renderHome(); } };
 
 $('playBtn').onclick = () => { audio.unlock(); audio.ui(); startLevel(endlessConfig(newSeed()), null); };
+$('openBtn').onclick = () => { audio.unlock(); audio.ui(); startLevel(openConfig(newSeed()), null); };
 $('levelsBtn').onclick = () => openPanel('levels');
 $('dailyBtn').onclick = () => { audio.unlock(); audio.ui(); startLevel(dailyConfig(todayKey()), null); };
 $('inviteBtn').onclick = async () => {
@@ -402,7 +420,7 @@ function tick(now) {
   let simDt = dt;
   if (state === 'celebrate' || state === 'outro') simDt = dt * (stateT < .8 ? .35 : 1);
   if (state === 'intro') { if (stateT > 2.2 || (stateT > .5 && ((input.active && Math.hypot(input.x, input.z) > .2) || input.keys.size))) { state = 'play'; $('intro').hidden = true; } game.animateIdle(dt); }
-  else if (state === 'play') game.update(dt, input);
+  else if (state === 'play') { game.update(dt, input); if (seaSwitchT > 0 && (seaSwitchT -= dt) <= 0) nextSea(); }
   else game.animateIdle(simDt);
   const bloomed = world.update(simDt, T, game.fever > 0 ? 1 : 0, state === 'celebrate' || (state === 'end' && result?.win) || state === 'home');
   if (bloomed.length) { game.queueFish(bloomed); for (const c of bloomed.slice(0, 4)) fx.sparkle(c.x, .5, c.z, c.color, 5, 1.8, .3); bloomSound -= dt; if (bloomSound <= 0) { bloomSound = .18; audio.bloom(Math.floor(Math.random() * 8)); } }
@@ -427,4 +445,4 @@ resize(); goHome();
 setTimeout(() => $('loading').classList.add('done'), 1500);
 requestAnimationFrame(t => { last = t; frame(t); setTimeout(() => $('loading').classList.add('done'), 250); });
 // Debug hook; step(ms) advances one frame by hand (tests in a hidden tab get no rAF).
-window.__ocean = { game, world, save, input, camera, startLevel, levelConfig, endlessConfig, goHome, step: (ms = 33) => tick(last + ms), get state() { return state; } };
+window.__ocean = { game, world, save, input, camera, startLevel, levelConfig, endlessConfig, openConfig, goHome, step: (ms = 33) => tick(last + ms), get state() { return state; } };

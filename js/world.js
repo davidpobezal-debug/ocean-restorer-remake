@@ -17,6 +17,9 @@ export const BIOMES = [
 // Expedition regions: big blobs in a row along +x, each touching the next through a passage.
 export const REGIONS = [{ cx: 0, cz: 0, r: 11 }, { cx: 22, cz: -3, r: 12.5 }, { cx: 47, cz: 2, r: 14 }, { cx: 75, cz: -2, r: 16 }];
 const EX = { ox: -15, oz: -21, sx: 110, sz: 42, cell: .3125 };
+// Open Sea (like the original): one big continuous seabed, the biomes are bands along +x.
+const OPEN = { x0: -11, band: 26, half: 15, cell: .3125 };
+const OPEN_REGIONS = [0, 1, 2, 3].map(i => ({ cx: OPEN.x0 + OPEN.band * (i + .5), cz: 0, r: Math.hypot(OPEN.band / 2, OPEN.half) }));
 
 export function levelConfig(n, daily = 0) {
   const seed = n * 1013 + 7;
@@ -36,6 +39,10 @@ export function levelConfig(n, daily = 0) {
 // Expedition: endless score run. Same seed = same seabed, so challenge links compare fairly.
 export function endlessConfig(seed, daily = 0) {
   return { endless: true, n: 0, daily, seed: seed >>> 0, biome: 0, size: 60, oil: .22, crust: .1, sharks: 0, jellies: 0, trash: 10, animal: null, clams: 2 };
+}
+// Open Sea: clean 80 % of a band to open the next; after the last band a new, dirtier sea is generated.
+export function openConfig(seed, sea = 1) {
+  return { ...endlessConfig(seed), open: true, sea, oil: Math.min(.42, .18 + sea * .04), crust: Math.min(.3, .06 + sea * .04) };
 }
 
 const HARD_RATE = [1, .55, .32], DONE = .9;
@@ -103,12 +110,14 @@ export class World {
 
   build(cfg) {
     if (this.group) this.dispose();
-    const endless = this.endless = !!cfg.endless, r = rng(cfg.seed); this.cfg = cfg;
+    const endless = this.endless = !!cfg.endless, open = this.open = !!cfg.open, r = rng(cfg.seed); this.cfg = cfg;
     // Levels are one square biome; the expedition is a long strip of four regions.
-    if (endless) { this.cell = EX.cell; this.ox = EX.ox; this.oz = EX.oz; this.Mx = Math.round(EX.sx / EX.cell); this.Mz = Math.round(EX.sz / EX.cell); }
+    if (open) { this.cell = OPEN.cell; this.ox = OPEN.x0 - 3; this.oz = -OPEN.half - 4; this.Mx = Math.round((OPEN.band * 4 + 6) / OPEN.cell); this.Mz = Math.round((OPEN.half * 2 + 8) / OPEN.cell); }
+    else if (endless) { this.cell = EX.cell; this.ox = EX.ox; this.oz = EX.oz; this.Mx = Math.round(EX.sx / EX.cell); this.Mz = Math.round(EX.sz / EX.cell); }
     else { this.Mx = this.Mz = 128; this.cell = cfg.size / 128; this.ox = this.oz = -cfg.size / 2; }
+    this.regions = open ? OPEN_REGIONS : REGIONS;
     this.Sx = this.Mx * this.cell; this.Sz = this.Mz * this.cell; this.S = endless ? this.Sx : cfg.size;
-    this.biomeOf = endless ? [0, 1, 2, 3] : [cfg.biome, cfg.biome, cfg.biome, cfg.biome];
+    this.biomeOf = open ? [0, 1, 2, 3].map(i => (i + cfg.sea - 1) % 4) : endless ? [0, 1, 2, 3] : [cfg.biome, cfg.biome, cfg.biome, cfg.biome];
     this.biome = BIOMES[this.biomeOf[0]];
     this.group = new THREE.Group(); this.scene.add(this.group);
     const Mx = this.Mx, N = Mx * this.Mz, S = cfg.size;
@@ -119,7 +128,12 @@ export class World {
     for (let k = 0; k < N; k++) {
       const x = this.cellX(k), z = this.cellZ(k), d = Math.hypot(x, z);
       let ok, reg = 0;
-      if (endless) {
+      if (open) {
+        // One wide seabed with wobbly shores; band borders wobble too so biomes blend like a real coast.
+        const half = OPEN.half + (fbm(x * .07, 3.7, seed + 11, 3) - .5) * 6, xe = OPEN.x0 + OPEN.band * 4;
+        reg = clamp(Math.floor((x - OPEN.x0 + (fbm(z * .09, x * .02, seed + 21, 2) - .5) * 6) / OPEN.band), 0, 3);
+        ok = Math.abs(z) < half && x > OPEN.x0 + (fbm(z * .15, 1, seed + 5, 2) - .5) * 4 && x < xe - 1 + (fbm(z * .15, 2, seed + 6, 2) - .5) * 4;
+      } else if (endless) {
         // Nearest region by normalised distance, with a wobbly coastline and guaranteed passages.
         let best = 9; for (let i = 0; i < 4; i++) { const R = REGIONS[i], q = Math.hypot(x - R.cx, z - R.cz) / R.r + (fbm(x * .1, z * .1, seed + i * 31, 3) - .5) * .42; if (q < best) { best = q; reg = i; } }
         ok = best < 1;
@@ -164,7 +178,7 @@ export class World {
   regionPct(r = this.unlocked) { return this.regionValid[r] ? this.regionDone[r] / this.regionValid[r] : 1; }
   regionAt(x, z) {
     if (!this.endless) return 0; const k = this.idx(x, z); if (k >= 0) return this.region[k];
-    let best = 0, bd = Infinity; REGIONS.forEach((R, i) => { const q = Math.hypot(x - R.cx, z - R.cz) / R.r; if (q < bd) { bd = q; best = i; } }); return best;
+    let best = 0, bd = Infinity; this.regions.forEach((R, i) => { const q = Math.hypot(x - R.cx, z - R.cz) / R.r; if (q < bd) { bd = q; best = i; } }); return best;
   }
   biomeAt(x, z) { return BIOMES[this.biomeOf[this.regionAt(x, z)]]; }
   // Has the opening current already passed this spot?
@@ -172,8 +186,8 @@ export class World {
   isRevealed(x, z) { return this.revealedIn(this.regionAt(x, z), x); }
   bounds() { return { x0: this.ox, x1: this.ox + this.Sx, z0: this.oz, z1: this.oz + this.Sz }; }
   // Overview framing: the regions opened so far.
-  viewSize() { if (!this.endless) return this.S; const a = REGIONS[0], b = REGIONS[this.unlocked]; return Math.max(b.cx + b.r - (a.cx - a.r), b.r * 2.2); }
-  viewCenter() { if (!this.endless) return { x: 0, z: 0 }; const a = REGIONS[0], b = REGIONS[this.unlocked]; return { x: (a.cx - a.r + b.cx + b.r) / 2, z: (a.cz + b.cz) / 2 }; }
+  viewSize() { if (!this.endless) return this.S; const a = this.regions[0], b = this.regions[this.unlocked]; return Math.max(b.cx + b.r - (a.cx - a.r), b.r * 2.2); }
+  viewCenter() { if (!this.endless) return { x: 0, z: 0 }; const a = this.regions[0], b = this.regions[this.unlocked]; return { x: (a.cx - a.r + b.cx + b.r) / 2, z: (a.cz + b.cz) / 2 }; }
 
   // Open the next region; cells become playable as the glowing current sweeps across it.
   unlock() {
@@ -186,7 +200,7 @@ export class World {
 
   randomPoint(r, { minR = 0, maxR = 0, clearance = 1, maxTries = 200, avoid = [], shape = false, region } = {}) {
     let cx = 0, cz = 0, max = maxR || this.S * .47, reg = -1;
-    if (this.endless) { reg = region ?? this.unlocked; const R = REGIONS[reg]; cx = R.cx; cz = R.cz; max = R.r * 1.05; }
+    if (this.endless) { reg = region ?? this.unlocked; const R = this.regions[reg]; cx = R.cx; cz = R.cz; max = R.r * 1.05; }
     const test = (x, z) => (shape ? this.isShape(x, z) : this.isValid(x, z)) && (reg < 0 || this.regionAt(x, z) === reg);
     for (let t = 0; t < maxTries; t++) {
       const a = r() * Math.PI * 2, d = minR + Math.sqrt(r()) * Math.max(.1, max - minR), x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d;
